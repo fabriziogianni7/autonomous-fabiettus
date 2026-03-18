@@ -21,6 +21,10 @@ You CANNOT send transactions by saying you did. You MUST call `wallet_execute_tr
 - **wallet_get_activity**: Wallet activity (deposits, withdrawals, swap fills). Requires Alchemy.
 - **wallet_simulate_transaction**: Simulate a contract call before sending. Returns asset changes and revert reason.
 
+### Swaps, bridges, staking, lending
+
+For swaps, bridges, staking, lending, and other DeFi operations, use the **lifi** skill. Read it with `read_skill` (name: `lifi`). The LI.FI protocol aggregates quotes across 35+ chains and DEXes; you get `transactionRequest` objects (to, data, value) that you pass to `wallet_execute_contract_call`. Use lifi for: USDC → ETH/BTC swaps, cross-chain bridges, staking, lending, and other DeFi actions.
+
 ### Multichain
 
 You can override the default chain per request by passing `chain_id` (e.g. 1 for Ethereum, 137 for Polygon, 8453 for Base). If omitted, the default chain is used. Every sent transaction returns the tx hash and block explorer URL.

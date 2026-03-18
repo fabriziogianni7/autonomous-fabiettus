@@ -1,0 +1,83 @@
+# Trading Strategy
+
+This document defines how you evaluate and execute opportunities. Follow it when scanning for trades and deploying capital.
+
+## Starting point
+
+You are given a wallet with USDC. Your initial mission is to deploy capital into **BTC and WETH** (blue-chip assets). Use `read_skill` for the **lifi** skill to swap USDC → ETH or BTC via LI.FI. Deploy a small amount on first move (e.g. 10–20% of deployable USDC) to get started.
+
+## Ongoing management
+
+Once capital is deployed, your task is to manage the portfolio:
+
+- **Buying**: Add to positions when opportunities arise (DCA, momentum, arbitrage).
+- **Selling**: Trim positions when overexposed or to lock gains; convert to USDC when appropriate.
+- **Rebalancing**: When allocations drift from targets, rebalance by buying or selling.
+- **Other tokens**: Diversify into other established tokens when opportunities are compelling; prefer blue chips over memecoins.
+
+## Focus
+
+- **Chains**: Prefer Base (chain 8453) for liquidity and low fees. Other L2s only when clearly advantageous.
+- **Assets**: Prefer established tokens over memecoins. Avoid unknown or unaudited contracts.
+- **Data**: Always use Tokenaru and wallet tools to verify prices and addresses before acting.
+
+## Opportunity categories
+
+### Low-risk (no strong edge required)
+
+- **DCA into blue chips**: BTC, ETH. Long-term accumulation; no strong edge needed. Use lifi skill for swaps.
+- **Bootstrap**: When portfolio is mostly USDC or idle, deploy into BTC/WETH per Starting point above.
+
+### Speculative (moderate edge required)
+
+- **Momentum with moderate confidence**: Small pumps/dips with liquidity and a plausible rebound or continuation. "Small" = 5–15% move in 24h; "liquidity" = Tokenaru or activity data shows $100k+ daily volume; "plausible" = not a rug, no obvious manipulation.
+- **Arbitrage**: Same asset priced differently across venues (e.g. DEX vs CEX).
+- **Mispricing**: Token price clearly off vs fundamentals or other markets.
+
+### High-risk (strong edge required)
+
+- Memecoins, illiquid assets, or unknown contracts require a very strong edge.
+
+## Position sizing
+
+- **Max per position**: No single position should exceed 15% of total portfolio value.
+- **Max new deployment**: When deploying capital, limit to 20% of available USDC (after reserve) per scan.
+- **Start small**: When uncertain, use smaller sizes. Scale up only after consistent positive outcomes.
+
+## Quant analysis (required before execution)
+
+Before executing any trade, use `spawn_subagents` with `role: "quant"` to compute expected value, Kelly fraction, and position size. Pass the quant sub-agent:
+
+- Portfolio value (USD) and deployable USDC after reserve
+- Simulation result (asset changes, gas estimate) from `wallet_simulate_transaction`
+- Token prices from Tokenaru
+- Trade type (arbitrage, momentum, DCA, etc.) and rough win probability if speculative
+
+**Task for quant sub-agent:** "Given: portfolio_value=$X, deployable_usdc=$Y, simulate_result=[paste asset changes and gas], token_prices=[paste], trade_type=Z. Compute: 1) Expected value (EV = prob_win × payoff - prob_loss × loss; for arb use net profit after fees; for DCA/blue-chip use long-term expected return). 2) Kelly fraction (f* = (p×b - q)/b where p=win prob, b=win/loss ratio, q=1-p; use half-Kelly for safety). 3) Recommended position size in USD = min(0.15×portfolio, half_kelly×deployable, 0.20×deployable). Return: EV, Kelly fraction, recommended size USD, and go/no-go with one-line reasoning."
+
+**Formulas:**
+- EV = (p × payoff) - ((1-p) × loss)
+- Kelly: f* = (p × b - (1-p)) / b; half-Kelly = f* / 2
+- Only execute if quant returns **go** and EV > 0 and recommended size > 0.
+
+## Entry criteria
+
+Only execute when all of the following hold:
+
+1. **Edge**: Category-appropriate edge (low-risk: none; speculative: moderate edge; high-risk: strong edge).
+2. **Simulation passes**: `wallet_simulate_transaction` shows no liquidation or unexpected slippage.
+3. **Runway intact**: After the trade, USDC on Base remains above the configured reserve.
+4. **Quant recommendation**: `spawn_subagents` with role "quant" returns **go** with EV > 0 and a positive recommended size.
+
+## Risk limits
+
+- **No leverage**: Do not use leveraged positions or borrow.
+- **Avoid illiquid assets**: If Tokenaru or activity data suggests low liquidity, reduce size or skip.
+- **Stop if uncertain**: When data is missing, conflicting, or unclear, do not execute. Report and wait.
+
+## Execution
+
+1. Use `wallet_simulate_transaction` before every `wallet_execute_transfer` or `wallet_execute_contract_call`.
+2. Use `spawn_subagents` with `role: "quant"` to get EV, Kelly, and position size recommendation before executing.
+3. Execute only if quant returns **go** and EV > 0.
+4. Report what you found, why you acted (or did not), and the outcome in your scan summaries.
