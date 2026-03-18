@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"regexp"
 	"strings"
+	"time"
 
 	"custom-agent/compaction"
 	"custom-agent/conversation"
@@ -13,6 +15,7 @@ import (
 	"custom-agent/memory"
 	"custom-agent/session"
 	"custom-agent/skills"
+	"custom-agent/spend"
 	"custom-agent/tools"
 	"custom-agent/wallet/redact"
 
@@ -52,6 +55,7 @@ type Agent struct {
 	convStore            *conversation.Store
 	skillsDir            string
 	skillsMgr            *skills.Manager
+	spendStore           *spend.Store
 }
 
 // New creates an Agent with the given LLM client, system prompt, tools, and optional stores.
@@ -61,7 +65,7 @@ type Agent struct {
 // skipCompaction: when true, bypass compaction entirely (e.g. autonomous mode).
 // skillsDir: optional path to skills directory; when set, skill descriptions are injected into system prompt.
 // modelForRole: optional; when non-nil and spawn_subagents uses role, returns model for that role (autonomous mode).
-func New(client *openai.Client, parentModel string, subagentModel string, systemPrompt string, tokenThreshold int, skipCompaction bool, toolSet *tools.Tools, convStore *conversation.Store, skillsDir string, modelForRole func(role string) string) *Agent {
+func New(client *openai.Client, parentModel string, subagentModel string, systemPrompt string, tokenThreshold int, skipCompaction bool, toolSet *tools.Tools, convStore *conversation.Store, skillsDir string, modelForRole func(role string) string, spendStore *spend.Store) *Agent {
 	if parentModel == "" {
 		parentModel = agentParentModel
 	}
@@ -75,13 +79,14 @@ func New(client *openai.Client, parentModel string, subagentModel string, system
 		subagentModel:        subagentModel,
 		subagentModelForRole: modelForRole,
 		systemPrompt:         systemPrompt,
-		compactor:            compaction.NewCompactor(client, parentModel, tokenThreshold),
+		compactor:            compaction.NewCompactor(client, parentModel, tokenThreshold, spendStore),
 		skipCompaction:       skipCompaction,
 		tools:                toolSet,
 		memoryStore:          toolSet.MemoryStore,
 		convStore:            convStore,
 		skillsDir:            skillsDir,
 		skillsMgr:            skillsMgr,
+		spendStore:           spendStore,
 	}
 }
 
@@ -237,13 +242,18 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 		if a.skipCompaction {
 			req.MaxTokens = 4096 // x402 router requires max_tokens
 		}
-		resp, err := a.client.CreateChatCompletion(ctx, req)
+		resp, err := createChatCompletionWithRetry(ctx, a.client, req)
 		if err != nil {
 			log.Printf("[agent] LLM error: %v", err)
 			return "Sorry, I couldn't process that. Please try again."
 		}
 
+		if a.spendStore != nil && resp.Usage.TotalTokens > 0 {
+			a.spendStore.Record(resp.Model, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+		}
+
 		if len(resp.Choices) == 0 {
+			log.Printf("[agent] LLM returned empty choices (model=%s)", a.parentModel)
 			return "I didn't get a response. Try again?"
 		}
 
@@ -337,6 +347,7 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 		// Final text response
 		reply := strings.TrimSpace(msgResp.Content)
 		if reply == "" {
+			log.Printf("[agent] LLM returned empty content (model=%s, hasToolCalls=%v)", a.parentModel, len(msgResp.ToolCalls) > 0)
 			return "I didn't get a response. Try again?"
 		}
 		if mustExecuteWallet && !walletToolUsed && claimsWalletWasSent(reply) {
@@ -442,6 +453,32 @@ func (a *Agent) handleSpawnSubagents(ctx context.Context, argsJSON string, msg g
 		return "Error running sub-agents: " + err.Error()
 	}
 	return FormatSubagentResults(results)
+}
+
+// isTimeoutError returns true if the error indicates an HTTP or context timeout.
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	s := err.Error()
+	return strings.Contains(s, "Timeout exceeded") || strings.Contains(s, "request canceled")
+}
+
+// createChatCompletionWithRetry calls CreateChatCompletion and retries once on timeout.
+func createChatCompletionWithRetry(ctx context.Context, client *openai.Client, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	resp, err := client.CreateChatCompletion(ctx, req)
+	if err == nil {
+		return resp, nil
+	}
+	if !isTimeoutError(err) {
+		return openai.ChatCompletionResponse{}, err
+	}
+	log.Printf("[agent] LLM timeout, retrying after 5s: %v", err)
+	time.Sleep(5 * time.Second)
+	return client.CreateChatCompletion(ctx, req)
 }
 
 // convertToMessagesAPIFormat removes system-role messages and prepends their content to the first

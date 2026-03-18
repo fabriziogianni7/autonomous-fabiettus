@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"custom-agent/session"
+	"custom-agent/spend"
 
 	"github.com/sashabaranov/go-openai"
 )
@@ -19,20 +20,22 @@ const (
 
 // Compactor performs threshold-based compaction with structured summarization.
 type Compactor struct {
-	client    *openai.Client
-	model     string
-	threshold int // token count; compact when exceeded
+	client     *openai.Client
+	model      string
+	threshold  int // token count; compact when exceeded
+	spendStore *spend.Store
 }
 
-// NewCompactor creates a compactor.
-func NewCompactor(client *openai.Client, model string, tokenThreshold int) *Compactor {
+// NewCompactor creates a compactor. spendStore may be nil (no recording).
+func NewCompactor(client *openai.Client, model string, tokenThreshold int, spendStore *spend.Store) *Compactor {
 	if tokenThreshold <= 0 {
 		tokenThreshold = DefaultTokenThreshold
 	}
 	return &Compactor{
-		client:    client,
-		model:     model,
-		threshold: tokenThreshold,
+		client:     client,
+		model:      model,
+		threshold:  tokenThreshold,
+		spendStore: spendStore,
 	}
 }
 
@@ -103,6 +106,10 @@ func (c *Compactor) summarize(ctx context.Context, msgs []session.Message) (*Com
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if c.spendStore != nil && resp.Usage.TotalTokens > 0 {
+		c.spendStore.Record(resp.Model, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 	}
 
 	if len(resp.Choices) == 0 || resp.Choices[0].Message.Content == "" {

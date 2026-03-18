@@ -17,7 +17,7 @@ import (
 
 const (
 	defaultMaxConcurrency   = 4
-	defaultPerChildTimeout  = 20 * time.Second
+	defaultPerChildTimeout  = 60 * time.Second
 	defaultMaxChildCount    = 10
 	subagentMaxToolRounds   = 5
 	subagentRoleInstruction = "You are a focused sub-agent. Answer only the given task. Use read_file, web_search, and read_memory as needed. Do not save memory or schedule reminders."
@@ -37,6 +37,8 @@ type SubtaskResult struct {
 	Err        error
 	Index      int
 	DurationMs int64
+	Role       string // role used for this sub-agent (if any)
+	Model      string // model used for inference
 }
 
 // SubagentOpts configures RunSubagents behavior.
@@ -133,12 +135,13 @@ func (a *Agent) runOneSubagent(ctx context.Context, spec SubtaskSpec, msg gatewa
 	for round := 0; round < subagentMaxToolRounds; round++ {
 		select {
 		case <-subCtx.Done():
-			log.Printf("[subagents] child index=%d timeout/cancel: %v", spec.Index, subCtx.Err())
+			log.Printf("[subagents] child index=%d role=%q timeout/cancel: %v", spec.Index, spec.Role, subCtx.Err())
 			return SubtaskResult{
 				Task:   spec.Task,
 				Output: "",
 				Err:    subCtx.Err(),
 				Index:  spec.Index,
+				Role:   spec.Role,
 			}
 		default:
 		}
@@ -152,6 +155,9 @@ func (a *Agent) runOneSubagent(ctx context.Context, spec SubtaskSpec, msg gatewa
 		if model == "" {
 			model = subagentModelForIndex(spec.Index)
 		}
+		if round == 0 {
+			log.Printf("[subagents] child index=%d role=%q model=%s task=%q", spec.Index, spec.Role, model, truncateForLog(spec.Task, 60))
+		}
 		sendMessages := messages
 		if a.skipCompaction {
 			sendMessages = convertToMessagesAPIFormat(messages)
@@ -164,19 +170,25 @@ func (a *Agent) runOneSubagent(ctx context.Context, spec SubtaskSpec, msg gatewa
 		if a.skipCompaction {
 			req.MaxTokens = 4096 // x402 router requires max_tokens
 		}
-		resp, err := a.client.CreateChatCompletion(subCtx, req)
+		resp, err := createChatCompletionWithRetry(subCtx, a.client, req)
 		if err != nil {
-			log.Printf("[subagents] child index=%d LLM error: %v", spec.Index, err)
+			log.Printf("[subagents] child index=%d role=%q model=%s LLM error: %v", spec.Index, spec.Role, model, err)
 			return SubtaskResult{
 				Task:   spec.Task,
 				Output: "",
 				Err:    err,
 				Index:  spec.Index,
+				Role:   spec.Role,
+				Model:  model,
 			}
 		}
 
+		if a.spendStore != nil && resp.Usage.TotalTokens > 0 {
+			a.spendStore.Record(resp.Model, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+		}
+
 		if len(resp.Choices) == 0 {
-			return SubtaskResult{Task: spec.Task, Output: "", Err: nil, Index: spec.Index}
+			return SubtaskResult{Task: spec.Task, Output: "", Err: nil, Index: spec.Index, Role: spec.Role, Model: model}
 		}
 
 		msgResp := resp.Choices[0].Message
@@ -249,6 +261,8 @@ func (a *Agent) runOneSubagent(ctx context.Context, spec SubtaskSpec, msg gatewa
 			Output: reply,
 			Err:    nil,
 			Index:  spec.Index,
+			Role:   spec.Role,
+			Model:  model,
 		}
 	}
 
@@ -257,7 +271,16 @@ func (a *Agent) runOneSubagent(ctx context.Context, spec SubtaskSpec, msg gatewa
 		Output: "",
 		Err:    nil,
 		Index:  spec.Index,
+		Role:   spec.Role,
+		Model:  "", // max rounds reached before final reply
 	}
+}
+
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // FormatSubagentResults returns a merged string for the parent to inject into messages.
@@ -273,7 +296,21 @@ func FormatSubagentResults(results []SubtaskResult) string {
 		}
 		b.WriteString("Task ")
 		b.WriteString(fmt.Sprintf("%d", i+1))
-		b.WriteString(": ")
+		if r.Role != "" || r.Model != "" {
+			b.WriteString(" (")
+			if r.Role != "" {
+				b.WriteString("role=")
+				b.WriteString(r.Role)
+			}
+			if r.Role != "" && r.Model != "" {
+				b.WriteString(", ")
+			}
+			if r.Model != "" {
+				b.WriteString("model=")
+				b.WriteString(r.Model)
+			}
+			b.WriteString(")")
+		}
 		b.WriteString(": ")
 		if r.Err != nil {
 			b.WriteString("(error: ")

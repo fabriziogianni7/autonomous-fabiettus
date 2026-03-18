@@ -23,6 +23,7 @@ import (
 	"custom-agent/reminders"
 	"custom-agent/sessionqueue"
 	"custom-agent/skills"
+	"custom-agent/spend"
 	"custom-agent/tools"
 	"custom-agent/wallet"
 	"custom-agent/wallet/approval"
@@ -63,6 +64,7 @@ func main() {
 	}
 	if cfg.WalletEnabled() {
 		toolInstruction += " When the wallet is configured, you can use wallet_get_balance, wallet_execute_transfer, wallet_execute_contract_call, and wallet_list_transactions. You MUST call wallet_execute_transfer or wallet_execute_contract_call to send—never claim a transaction was sent without invoking the tool. Transactions may require user approval; reply with approve: <tx_id> when prompted. With wallet enabled, http_request can automatically pay for x402-protected APIs (402 Payment Required)."
+		toolInstruction += " For LI.FI swaps, use lifi_get_quote (not http_request) to get quotes. Use lifi_track_status to track cross-chain transfers. Use lifi_check_route to verify routes exist. Use lifi_get_token to resolve token symbols. Prefer these tools over building LI.FI URLs manually."
 		if cfg.AlchemyEnabled() {
 			toolInstruction += " Use wallet_get_portfolio, wallet_get_portfolio_value, wallet_get_activity, and wallet_simulate_transaction for full holdings, USD valuation, activity history, and pre-trade simulation."
 		}
@@ -75,7 +77,7 @@ func main() {
 		if pk := os.Getenv(cfg.WalletPrivateKeyEnv); pk != "" {
 			var errX402 error
 			if cfg.AutonomousMode && cfg.EVM_RPC_URL != "" && cfg.X402PermitCap != "" {
-				x402Client, errX402 = x402client.NewWithUpto(pk, cfg.EVM_RPC_URL, cfg.X402PermitCap)
+				x402Client, errX402 = x402client.NewWithUpto(pk, cfg.EVM_RPC_URL, cfg.X402PermitCap, cfg.X402LLMTimeout)
 			} else {
 				x402Client, errX402 = x402client.New(pk)
 			}
@@ -140,6 +142,14 @@ func main() {
 		toolSet.SetSkills(sm)
 		toolSet.SetLLMClient(llm)
 		log.Printf("[skills] enabled, dir=%s", cfg.SkillsDir)
+	}
+	skillsDataPath := cfg.SkillsDir
+	if skillsDataPath == "" {
+		skillsDataPath = "./skills-data"
+	}
+	spendStore := spend.NewStore(skillsDataPath)
+	if cfg.AutonomousMode {
+		toolSet.SetSpendStore(spendStore)
 	}
 	senderRegistry := gateway.NewSenderRegistry()
 
@@ -213,6 +223,13 @@ func main() {
 
 	// Build system prompt: personality + tools, then append WALLET.md when wallet is enabled
 	systemPrompt := strings.TrimSpace(string(personality)) + toolInstruction
+	if cfg.AutonomousMode {
+		strategy, err := os.ReadFile("STRATEGY.md")
+		if err != nil {
+			log.Fatalf("failed to load STRATEGY.md: %v", err)
+		}
+		systemPrompt += "\n\n" + strings.TrimSpace(string(strategy))
+	}
 	if toolSet.Wallet != nil {
 		walletDoc, err := os.ReadFile("WALLET.md")
 		if err != nil {
@@ -232,7 +249,7 @@ func main() {
 		skipCompaction = true
 		modelForRole = func(role string) string { return cfg.ModelForRole(role) }
 	}
-	a := agent.New(llm, parentModel, subagentModel, systemPrompt, cfg.CompactionThreshold, skipCompaction, toolSet, convStore, cfg.SkillsDir, modelForRole)
+	a := agent.New(llm, parentModel, subagentModel, systemPrompt, cfg.CompactionThreshold, skipCompaction, toolSet, convStore, cfg.SkillsDir, modelForRole, spendStore)
 
 	queue := sessionqueue.New(func(msg gateway.IncomingMessage) string {
 		return a.HandleMessage(context.Background(), msg)
