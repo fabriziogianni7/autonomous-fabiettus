@@ -28,14 +28,15 @@ type Client struct {
 // Registers only the "exact" scheme. If privateKeyHex is empty, returns nil
 // (caller should use plain http.DefaultClient).
 func New(privateKeyHex string) (*Client, error) {
-	return NewWithUpto(privateKeyHex, "", "")
+	return NewWithUpto(privateKeyHex, "", "", 0)
 }
 
 // NewWithUpto creates an x402-aware HTTP client that supports both "exact" and "upto" schemes.
 // When rpcURL and permitCapUSDC are non-empty, the upto scheme is registered for pay-as-you-go
 // routers (e.g. ai.xgate.run). The client dynamically selects the scheme from the 402 response.
+// timeoutSec: HTTP client timeout in seconds; 0 or negative = 120 (default).
 // If privateKeyHex is empty, returns nil.
-func NewWithUpto(privateKeyHex, rpcURL, permitCapUSDC string) (*Client, error) {
+func NewWithUpto(privateKeyHex, rpcURL, permitCapUSDC string, timeoutSec int) (*Client, error) {
 	privateKeyHex = strings.TrimSpace(strings.TrimPrefix(privateKeyHex, "0x"))
 	if privateKeyHex == "" {
 		return nil, nil
@@ -63,8 +64,12 @@ func NewWithUpto(privateKeyHex, rpcURL, permitCapUSDC string) (*Client, error) {
 		x402Client.Register("eip155:*", uptoScheme)
 	}
 
+	timeout := 120 * time.Second
+	if timeoutSec > 0 {
+		timeout = time.Duration(timeoutSec) * time.Second
+	}
 	base := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: timeout,
 	}
 	wrapped := x402http.WrapHTTPClientWithPayment(base, x402http.Newx402HTTPClient(x402Client))
 

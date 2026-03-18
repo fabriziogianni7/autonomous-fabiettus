@@ -69,7 +69,7 @@ func TestClient_Do_FreeAPI(t *testing.T) {
 
 func TestNewWithUpto_EmptyRPC_OnlyExact(t *testing.T) {
 	key := "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-	c, err := NewWithUpto(key, "", "")
+	c, err := NewWithUpto(key, "", "", 0)
 	if err != nil {
 		t.Fatalf("NewWithUpto(empty rpc): %v", err)
 	}
@@ -81,7 +81,7 @@ func TestNewWithUpto_EmptyRPC_OnlyExact(t *testing.T) {
 func TestNewWithUpto_NoUptoWhenPermitCapEmpty(t *testing.T) {
 	key := "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 	// With empty permitCap, upto is not registered even if rpcURL is set
-	c, err := NewWithUpto(key, "http://127.0.0.1:0", "")
+	c, err := NewWithUpto(key, "http://127.0.0.1:0", "", 0)
 	if err != nil {
 		t.Fatalf("NewWithUpto(empty permitCap): %v", err)
 	}
@@ -175,7 +175,7 @@ func TestClient_Do_402Upto_RetriesWithPayment(t *testing.T) {
 	}))
 	defer rpcServer.Close()
 
-	c, err := NewWithUpto(key, rpcServer.URL, "50")
+	c, err := NewWithUpto(key, rpcServer.URL, "50", 0)
 	if err != nil {
 		t.Fatalf("NewWithUpto: %v", err)
 	}

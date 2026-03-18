@@ -88,6 +88,9 @@ type Config struct {
 	// Default 10 when autonomous mode enabled. Used for runway checks via wallet_get_portfolio_value.
 	X402MinBaseUSDC string // e.g. "10"
 
+	// X402LLMTimeout: HTTP timeout for LLM requests in seconds (default 120). Increase if ai.xgate.run often times out.
+	X402LLMTimeout int
+
 	// Role-specific subagent models (autonomous mode). When spawn_subagents uses role, maps to model.
 	// Omit to use X402Model for all. Saves cost: parser/research use cheap models.
 	X402ModelQuant    string // quant: math/strategy
@@ -133,6 +136,7 @@ func Load() (*Config, error) {
 		AlchemyAPIKey:                  strings.TrimSpace(os.Getenv("ALCHEMY_API_KEY")),
 		AlchemyBaseURL:                 strings.TrimSpace(os.Getenv("ALCHEMY_BASE_URL")),
 		X402MinBaseUSDC:                strings.TrimSpace(os.Getenv("X402_MIN_BASE_USDC")),
+		X402LLMTimeout:                 parseInt(os.Getenv("X402_LLM_TIMEOUT"), 120),
 		X402ModelQuant:                 strings.TrimSpace(os.Getenv("X402_MODEL_QUANT")),
 		X402ModelParser:                strings.TrimSpace(os.Getenv("X402_MODEL_PARSER")),
 		X402ModelResearch:              strings.TrimSpace(os.Getenv("X402_MODEL_RESEARCH")),
@@ -153,6 +157,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.AutonomousMode && cfg.X402MinBaseUSDC == "" {
 		cfg.X402MinBaseUSDC = "10"
+	}
+	if cfg.X402LLMTimeout <= 0 {
+		cfg.X402LLMTimeout = 120
 	}
 
 	if err := cfg.validate(); err != nil {
