@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -68,7 +67,6 @@ func (c *Client) urlForChain(chainID int64) (string, error) {
 	} else {
 		return "", fmt.Errorf("alchemy: no URL for chain %d", chainID)
 	}
-	log.Printf("[alchemy] chain %d -> %s", chainID, redactURL(url))
 	return url, nil
 }
 
@@ -95,7 +93,6 @@ func (c *Client) jsonRPC(ctx context.Context, url, method string, params interfa
 	if err != nil {
 		return err
 	}
-	log.Printf("[alchemy] %s %s body=%s", "POST", redactURL(url), string(enc))
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(enc))
 	if err != nil {
 		return err
@@ -303,7 +300,6 @@ func (c *Client) GetTokenPrice(ctx context.Context, chainID int64, contractAddre
 		return 0, err
 	}
 	u := base + "/getTokenPrice?contractAddress=" + contractAddress
-	log.Printf("[alchemy] GET %s", redactURL(u))
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return 0, err
