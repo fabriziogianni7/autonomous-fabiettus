@@ -21,6 +21,7 @@ import (
 	"custom-agent/memory"
 	"custom-agent/reminders"
 	"custom-agent/skills"
+	"custom-agent/spend"
 	"custom-agent/x402client"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -28,7 +29,7 @@ import (
 )
 
 // Tool names for fallback parsing
-var toolNames = []string{"run_command", "read_file", "write_file", "web_search", "save_memory", "read_memory", "create_scheduled_reminder", "list_reminders", "delete_reminder", "spawn_subagents", "http_request", "x402_get_stats", "wallet_get_balance", "wallet_execute_transfer", "wallet_execute_contract_call", "wallet_list_transactions", "wallet_get_portfolio", "wallet_get_portfolio_value", "wallet_get_activity", "wallet_simulate_transaction", "list_skills", "read_skill", "read_skill_script", "write_skill"}
+var toolNames = []string{"run_command", "read_file", "write_file", "web_search", "save_memory", "read_memory", "create_scheduled_reminder", "list_reminders", "delete_reminder", "spawn_subagents", "http_request", "x402_get_stats", "lifi_get_quote", "lifi_track_status", "lifi_check_route", "lifi_get_token", "wallet_get_balance", "wallet_execute_transfer", "wallet_execute_contract_call", "wallet_list_transactions", "wallet_get_portfolio", "wallet_get_portfolio_value", "wallet_get_activity", "wallet_simulate_transaction", "list_skills", "read_skill", "read_skill_script", "write_skill"}
 
 // ReadOnlyToolNames are tools allowed for stateless sub-agents (no session/memory/reminder writes).
 var ReadOnlyToolNames = map[string]bool{
@@ -37,6 +38,10 @@ var ReadOnlyToolNames = map[string]bool{
 	"read_memory":                true,
 	"http_request":               true,
 	"x402_get_stats":             true,
+	"lifi_get_quote":             true,
+	"lifi_track_status":          true,
+	"lifi_check_route":           true,
+	"lifi_get_token":             true,
 	"wallet_get_portfolio":       true,
 	"wallet_get_portfolio_value": true,
 	"wallet_get_activity":        true,
@@ -82,6 +87,7 @@ type Tools struct {
 	X402Client        *x402client.Client // optional; when set, http_request can pay for 402-protected APIs
 	X402RouterURL     string             // optional; when set with X402Client, x402_get_stats is available
 	X402PermitCap     string             // optional; session spend cap in USDC for x402_get_stats remaining calc
+	SpendStore        *spend.Store       // optional; when set (autonomous mode), x402_get_stats returns locally tracked stats
 	Alchemy           *alchemy.Client    // optional; when set, portfolio tools are available
 	Skills            SkillsManager      // optional; when set, skills tools are available
 	LLMClient         *openai.Client     // optional; when set, write_skill runs security/feasibility checks
@@ -115,6 +121,11 @@ func (t *Tools) SetX402Client(c *x402client.Client) {
 func (t *Tools) SetX402StatsConfig(routerURL, permitCap string) {
 	t.X402RouterURL = strings.TrimSuffix(routerURL, "/")
 	t.X402PermitCap = permitCap
+}
+
+// SetSpendStore sets the optional spend store for local inference tracking. When set, x402_get_stats returns locally tracked stats.
+func (t *Tools) SetSpendStore(s *spend.Store) {
+	t.SpendStore = s
 }
 
 // SetAlchemy sets the optional Alchemy client for portfolio tools.
@@ -411,14 +422,14 @@ func Definitions() []openai.Tool {
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "wallet_execute_contract_call",
-				Description: "REQUIRED to execute contract calls: call this tool when the user asks to call a contract or send to a contract. You cannot execute without invoking this tool. Params: to, data (hex), value_wei (0 for none). Returns tx hash and explorer link.",
+				Description: "REQUIRED to execute contract calls: call this tool when the user asks to call a contract or send to a contract. Params: to, data (hex), value_wei (0 or 0x0 for none), chain_id (required for LI.FI—use transactionRequest.chainId). Returns tx hash and explorer link.",
 				Parameters: jsonschema.Definition{
 					Type: jsonschema.Object,
 					Properties: map[string]jsonschema.Definition{
 						"to":        {Type: jsonschema.String, Description: "Contract address (0x...)"},
-						"data":      {Type: jsonschema.String, Description: "Hex-encoded calldata (0x...)"},
-						"value_wei": {Type: jsonschema.String, Description: "ETH to send in wei (0 for none)"},
-						"chain_id":  {Type: jsonschema.Integer, Description: "Optional chain ID. Omit to use default chain."},
+						"data":      {Type: jsonschema.String, Description: "Hex-encoded calldata (0x...). Do not truncate."},
+						"value_wei": {Type: jsonschema.String, Description: "ETH to send in wei. Decimal or hex (0x0 for none). LI.FI returns hex."},
+						"chain_id":  {Type: jsonschema.Integer, Description: "Chain ID. Required for LI.FI—use transactionRequest.chainId. Omit for default chain."},
 					},
 					Required: []string{"to", "data"},
 				},
@@ -554,6 +565,77 @@ func Definitions() []openai.Tool {
 				},
 			},
 		},
+		{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name:        "lifi_get_quote",
+				Description: "Get LI.FI swap or bridge quote. Returns optimal route, estimate (toAmount, fees, executionDuration), and transactionRequest ready for wallet_execute_contract_call. Use for any swap or cross-chain transfer. Omit from_address to use the configured wallet.",
+				Parameters: jsonschema.Definition{
+					Type: jsonschema.Object,
+					Properties: map[string]jsonschema.Definition{
+						"from_chain":   {Type: jsonschema.Integer, Description: "Source chain ID (e.g. 8453 for Base)"},
+						"to_chain":     {Type: jsonschema.Integer, Description: "Destination chain ID"},
+						"from_token":   {Type: jsonschema.String, Description: "Source token address or 0x0000000000000000000000000000000000000000 for native"},
+						"to_token":     {Type: jsonschema.String, Description: "Destination token address or 0x0... for native"},
+						"from_amount":  {Type: jsonschema.String, Description: "Amount in token smallest unit (wei)"},
+						"from_address": {Type: jsonschema.String, Description: "Wallet address. Omit to use configured wallet."},
+						"to_address":   {Type: jsonschema.String, Description: "Optional recipient. Omit for same as from_address."},
+						"slippage":     {Type: jsonschema.Number, Description: "Slippage tolerance 0-1 (e.g. 0.03 = 3%). Default 0.03."},
+						"order":        {Type: jsonschema.String, Description: "RECOMMENDED, FASTEST, CHEAPEST, or SAFEST. Default RECOMMENDED."},
+					},
+					Required: []string{"from_chain", "to_chain", "from_token", "to_token", "from_amount"},
+				},
+			},
+		},
+		{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name:        "lifi_track_status",
+				Description: "Track LI.FI cross-chain transfer status. Returns status (NOT_FOUND, PENDING, DONE, FAILED), substatus, and tx details.",
+				Parameters: jsonschema.Definition{
+					Type: jsonschema.Object,
+					Properties: map[string]jsonschema.Definition{
+						"tx_hash":    {Type: jsonschema.String, Description: "Source chain transaction hash (0x...)"},
+						"bridge":     {Type: jsonschema.String, Description: "Optional bridge key for faster lookup"},
+						"from_chain": {Type: jsonschema.Integer, Description: "Optional source chain ID"},
+						"to_chain":   {Type: jsonschema.Integer, Description: "Optional destination chain ID"},
+					},
+					Required: []string{"tx_hash"},
+				},
+			},
+		},
+		{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name:        "lifi_check_route",
+				Description: "Check if a LI.FI route exists between chains and tokens. Use before quoting to verify the pair is supported.",
+				Parameters: jsonschema.Definition{
+					Type: jsonschema.Object,
+					Properties: map[string]jsonschema.Definition{
+						"from_chain": {Type: jsonschema.Integer, Description: "Source chain ID"},
+						"to_chain":   {Type: jsonschema.Integer, Description: "Destination chain ID"},
+						"from_token": {Type: jsonschema.String, Description: "Source token address or 0x0... for native"},
+						"to_token":   {Type: jsonschema.String, Description: "Optional destination token. Omit to check any destination."},
+					},
+					Required: []string{"from_chain", "to_chain", "from_token"},
+				},
+			},
+		},
+		{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name:        "lifi_get_token",
+				Description: "Get LI.FI token details (address, decimals, symbol). Use to resolve symbol to address before lifi_get_quote.",
+				Parameters: jsonschema.Definition{
+					Type: jsonschema.Object,
+					Properties: map[string]jsonschema.Definition{
+						"chain": {Type: jsonschema.Integer, Description: "Chain ID"},
+						"token": {Type: jsonschema.String, Description: "Token symbol (e.g. USDC) or contract address"},
+					},
+					Required: []string{"chain", "token"},
+				},
+			},
+		},
 	}
 }
 
@@ -605,6 +687,14 @@ func (t *Tools) ExecuteTool(name, argsJSON string) (string, error) {
 		return t.deleteReminder(strArgs)
 	case "http_request":
 		return t.httpRequest(strArgs, args)
+	case "lifi_get_quote":
+		return t.lifiGetQuote(strArgs, args)
+	case "lifi_track_status":
+		return t.lifiTrackStatus(strArgs)
+	case "lifi_check_route":
+		return t.lifiCheckRoute(strArgs)
+	case "lifi_get_token":
+		return t.lifiGetToken(strArgs)
 	case "x402_get_stats":
 		return t.x402GetStats()
 	case "wallet_get_balance":
@@ -1318,6 +1408,8 @@ const (
 	httpRequestMaxBody  = 64 * 1024 // 64KB
 	httpRequestTimeout  = 30 * time.Second
 	httpRequestRedactHd = "authorization,cookie,x-api-key,x-auth-token"
+	lifiBaseURL         = "https://li.quest/v1"
+	lifiTimeout         = 30 * time.Second
 )
 
 func (t *Tools) httpRequest(args map[string]string, rawArgs map[string]interface{}) (string, error) {
@@ -1424,7 +1516,134 @@ func (t *Tools) httpRequest(args map[string]string, rawArgs map[string]interface
 	return out.String(), nil
 }
 
+func lifiGet(path string, params url.Values) (string, error) {
+	rawURL := lifiBaseURL + path
+	if len(params) > 0 {
+		rawURL += "?" + params.Encode()
+	}
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "Error: " + err.Error(), nil
+	}
+	req.Header.Set("User-Agent", "custom-agent/1.0")
+	ctx, cancel := context.WithTimeout(context.Background(), lifiTimeout)
+	defer cancel()
+	req = req.WithContext(ctx)
+	client := &http.Client{Timeout: lifiTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "Error: LI.FI request failed: " + err.Error(), nil
+	}
+	defer resp.Body.Close()
+	limited := io.LimitReader(resp.Body, httpRequestMaxBody+1)
+	body, err := io.ReadAll(limited)
+	if err != nil {
+		return "Error: failed to read response: " + err.Error(), nil
+	}
+	if len(body) > httpRequestMaxBody {
+		body = body[:httpRequestMaxBody]
+	}
+	out := fmt.Sprintf("Status: %d %s\nBody:\n%s", resp.StatusCode, resp.Status, string(body))
+	if resp.StatusCode >= 400 {
+		out += "\n\nLI.FI API error. Check params (chain IDs as integers, token addresses, from_amount in wei)."
+	}
+	return out, nil
+}
+
+func (t *Tools) lifiGetQuote(args map[string]string, rawArgs map[string]interface{}) (string, error) {
+	fromChain := strings.TrimSpace(args["from_chain"])
+	toChain := strings.TrimSpace(args["to_chain"])
+	fromToken := strings.TrimSpace(args["from_token"])
+	toToken := strings.TrimSpace(args["to_token"])
+	fromAmount := strings.TrimSpace(args["from_amount"])
+	if fromChain == "" || toChain == "" || fromToken == "" || toToken == "" || fromAmount == "" {
+		return "Error: lifi_get_quote requires from_chain, to_chain, from_token, to_token, from_amount.", nil
+	}
+	fromAddress := strings.TrimSpace(args["from_address"])
+	if fromAddress == "" && t.Wallet != nil {
+		fromAddress = t.Wallet.WalletAddress()
+	}
+	if fromAddress == "" {
+		return "Error: lifi_get_quote requires from_address when wallet is not configured.", nil
+	}
+	params := url.Values{}
+	params.Set("fromChain", fromChain)
+	params.Set("toChain", toChain)
+	params.Set("fromToken", fromToken)
+	params.Set("toToken", toToken)
+	params.Set("fromAddress", fromAddress)
+	params.Set("fromAmount", fromAmount)
+	if s := strings.TrimSpace(args["to_address"]); s != "" {
+		params.Set("toAddress", s)
+	}
+	if s := strings.TrimSpace(args["slippage"]); s != "" {
+		params.Set("slippage", s)
+	} else {
+		params.Set("slippage", "0.03")
+	}
+	if s := strings.TrimSpace(args["order"]); s != "" {
+		params.Set("order", s)
+	} else {
+		params.Set("order", "RECOMMENDED")
+	}
+	return lifiGet("/quote", params)
+}
+
+func (t *Tools) lifiTrackStatus(args map[string]string) (string, error) {
+	txHash := strings.TrimSpace(args["tx_hash"])
+	if txHash == "" {
+		return "Error: lifi_track_status requires tx_hash.", nil
+	}
+	params := url.Values{}
+	params.Set("txHash", txHash)
+	if s := strings.TrimSpace(args["bridge"]); s != "" {
+		params.Set("bridge", s)
+	}
+	if s := strings.TrimSpace(args["from_chain"]); s != "" {
+		params.Set("fromChain", s)
+	}
+	if s := strings.TrimSpace(args["to_chain"]); s != "" {
+		params.Set("toChain", s)
+	}
+	return lifiGet("/status", params)
+}
+
+func (t *Tools) lifiCheckRoute(args map[string]string) (string, error) {
+	fromChain := strings.TrimSpace(args["from_chain"])
+	toChain := strings.TrimSpace(args["to_chain"])
+	fromToken := strings.TrimSpace(args["from_token"])
+	if fromChain == "" || toChain == "" || fromToken == "" {
+		return "Error: lifi_check_route requires from_chain, to_chain, from_token.", nil
+	}
+	params := url.Values{}
+	params.Set("fromChain", fromChain)
+	params.Set("toChain", toChain)
+	params.Set("fromToken", fromToken)
+	if s := strings.TrimSpace(args["to_token"]); s != "" {
+		params.Set("toToken", s)
+	}
+	return lifiGet("/connections", params)
+}
+
+func (t *Tools) lifiGetToken(args map[string]string) (string, error) {
+	chain := strings.TrimSpace(args["chain"])
+	token := strings.TrimSpace(args["token"])
+	if chain == "" || token == "" {
+		return "Error: lifi_get_token requires chain and token.", nil
+	}
+	params := url.Values{}
+	params.Set("chain", chain)
+	params.Set("token", token)
+	return lifiGet("/token", params)
+}
+
 func (t *Tools) x402GetStats() (string, error) {
+	// When SpendStore is set (autonomous mode), return locally tracked stats instead of global router stats.
+	if t.SpendStore != nil {
+		totalUSD, totalTokens := t.SpendStore.Stats()
+		return fmt.Sprintf("total_spent_usd=%.4f total_tokens=%d (locally tracked; actual inference spend for this wallet)",
+			totalUSD, totalTokens), nil
+	}
 	if t.X402Client == nil || t.X402RouterURL == "" {
 		return "x402_get_stats requires autonomous mode with x402 router configured (X402_ROUTER_URL).", nil
 	}

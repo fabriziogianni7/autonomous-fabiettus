@@ -161,7 +161,17 @@ func (s *Service) ExecuteContractCall(ctx context.Context, chainID int64, toAddr
 	to := common.HexToAddress(toAddr)
 	val := new(big.Int)
 	if valueWei != "" {
-		val.SetString(valueWei, 10)
+		// Accept decimal or hex (0x-prefix) for LI.FI compatibility
+		trimmed := strings.TrimSpace(valueWei)
+		if strings.HasPrefix(strings.ToLower(trimmed), "0x") {
+			hexPart := strings.TrimPrefix(trimmed, "0x")
+			if hexPart == "" {
+				hexPart = "0"
+			}
+			val.SetString(hexPart, 16)
+		} else {
+			val.SetString(trimmed, 10)
+		}
 	}
 	data := common.FromHex(dataHex)
 	gas, err := acc.Estimate(ctx, &account.Action{To: to, Value: val, Data: data, GasLimit: 0})
