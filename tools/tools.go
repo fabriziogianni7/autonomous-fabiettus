@@ -754,7 +754,8 @@ func (t *Tools) walletGetBalance(args map[string]string, rawArgs map[string]inte
 	if err != nil {
 		return "Error: " + err.Error(), nil
 	}
-	return "Balance: " + bal + " wei", nil
+	ethHuman := weiToEth(bal)
+	return fmt.Sprintf("Balance: %.6f ETH (%s wei)", ethHuman, bal), nil
 }
 
 func (t *Tools) walletExecuteTransfer(args map[string]string, rawArgs map[string]interface{}) (string, error) {
@@ -849,7 +850,8 @@ func (t *Tools) walletGetPortfolio(args map[string]string, rawArgs map[string]in
 		if chainID == 0 {
 			b.WriteString(fmt.Sprintf("Chain %d:\n", cid))
 		}
-		b.WriteString(fmt.Sprintf("  Native: %s wei\n", nativeBal))
+		ethHuman := weiToEth(nativeBal)
+		b.WriteString(fmt.Sprintf("  Native: %.6f ETH (%s wei)\n", ethHuman, nativeBal))
 		// ERC-20 from Alchemy
 		tb, err := t.Alchemy.GetTokenBalances(context.Background(), cid, addr, "erc20")
 		if err != nil {
@@ -913,6 +915,7 @@ func (t *Tools) walletGetPortfolioValue(args map[string]string, rawArgs map[stri
 			continue
 		}
 		nativeWei, _ := new(big.Int).SetString(nativeBal, 10)
+		ethHuman := weiToEth(nativeBal)
 		ethPrice, _ := t.Alchemy.GetTokenPrice(context.Background(), cid, "0x0000000000000000000000000000000000000000")
 		if ethPrice > 0 {
 			ethVal := new(big.Float).SetInt(nativeWei)
@@ -920,9 +923,9 @@ func (t *Tools) walletGetPortfolioValue(args map[string]string, rawArgs map[stri
 			ethVal.Mul(ethVal, big.NewFloat(ethPrice))
 			f, _ := ethVal.Float64()
 			totalUSD += f
-			b.WriteString(fmt.Sprintf("  Native: %s wei ≈ $%.2f\n", nativeBal, f))
+			b.WriteString(fmt.Sprintf("  Native: %.6f ETH (%s wei) ≈ $%.2f\n", ethHuman, nativeBal, f))
 		} else {
-			b.WriteString(fmt.Sprintf("  Native: %s wei\n", nativeBal))
+			b.WriteString(fmt.Sprintf("  Native: %.6f ETH (%s wei)\n", ethHuman, nativeBal))
 		}
 		// ERC-20
 		tb, err := t.Alchemy.GetTokenBalances(context.Background(), cid, addr, "erc20")
@@ -972,6 +975,18 @@ func (t *Tools) walletGetPortfolioValue(args map[string]string, rawArgs map[stri
 	}
 	b.WriteString(fmt.Sprintf("Total ≈ $%.2f\n", totalUSD))
 	return strings.TrimSpace(b.String()), nil
+}
+
+// weiToEth converts wei string to ETH (human-readable) as float64.
+func weiToEth(weiStr string) float64 {
+	w, ok := new(big.Int).SetString(weiStr, 10)
+	if !ok {
+		return 0
+	}
+	f := new(big.Float).SetInt(w)
+	f.Quo(f, big.NewFloat(1e18))
+	out, _ := f.Float64()
+	return out
 }
 
 func pow10(n int) int64 {
