@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net"
 	"net/http"
@@ -1082,7 +1083,13 @@ func (t *Tools) walletSimulateTransaction(args map[string]string, rawArgs map[st
 	}
 	from := t.Wallet.WalletAddress()
 	res, err := t.Alchemy.SimulateAssetChanges(context.Background(), chainID, from, to, data, valueWei)
+	if err != nil && isRetryableSimulationError(err) {
+		log.Printf("[wallet] simulation retry after transient error: %v (to=%s chain=%d dataLen=%d)", err, to, chainID, len(data))
+		time.Sleep(3 * time.Second)
+		res, err = t.Alchemy.SimulateAssetChanges(context.Background(), chainID, from, to, data, valueWei)
+	}
 	if err != nil {
+		log.Printf("[wallet] simulation failed: to=%s chain=%d dataLen=%d err=%v", to, chainID, len(data), err)
 		return "Error: " + err.Error(), nil
 	}
 	if len(res.Changes) == 0 {
@@ -1094,6 +1101,15 @@ func (t *Tools) walletSimulateTransaction(args map[string]string, rawArgs map[st
 		b.WriteString(fmt.Sprintf("  %s %s: %s → %s raw=%s\n", c.AssetType, c.ChangeType, c.From, c.To, c.RawAmount))
 	}
 	return strings.TrimSpace(b.String()), nil
+}
+
+// isRetryableSimulationError returns true for HTTP 429 or 5xx (transient Alchemy errors).
+func isRetryableSimulationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "429") || strings.Contains(s, " HTTP 5")
 }
 
 func (t *Tools) listSkills() (string, error) {
@@ -1593,30 +1609,45 @@ func lifiGet(path string, params url.Values) (string, error) {
 	if len(params) > 0 {
 		rawURL += "?" + params.Encode()
 	}
-	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
-	if err != nil {
-		return "Error: " + err.Error(), nil
+	doReq := func() (string, int, error) {
+		req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+		if err != nil {
+			return "", 0, err
+		}
+		req.Header.Set("User-Agent", "custom-agent/1.0")
+		ctx, cancel := context.WithTimeout(context.Background(), lifiTimeout)
+		defer cancel()
+		req = req.WithContext(ctx)
+		client := &http.Client{Timeout: lifiTimeout}
+		resp, err := client.Do(req)
+		if err != nil {
+			return "", 0, err
+		}
+		defer resp.Body.Close()
+		limited := io.LimitReader(resp.Body, httpRequestMaxBody+1)
+		body, err := io.ReadAll(limited)
+		if err != nil {
+			return "", resp.StatusCode, err
+		}
+		if len(body) > httpRequestMaxBody {
+			body = body[:httpRequestMaxBody]
+		}
+		return string(body), resp.StatusCode, nil
 	}
-	req.Header.Set("User-Agent", "custom-agent/1.0")
-	ctx, cancel := context.WithTimeout(context.Background(), lifiTimeout)
-	defer cancel()
-	req = req.WithContext(ctx)
-	client := &http.Client{Timeout: lifiTimeout}
-	resp, err := client.Do(req)
+	body, status, err := doReq()
 	if err != nil {
 		return "Error: LI.FI request failed: " + err.Error(), nil
 	}
-	defer resp.Body.Close()
-	limited := io.LimitReader(resp.Body, httpRequestMaxBody+1)
-	body, err := io.ReadAll(limited)
-	if err != nil {
-		return "Error: failed to read response: " + err.Error(), nil
+	if status == http.StatusTooManyRequests {
+		log.Printf("[lifi] 429 rate limited, retrying after 30s")
+		time.Sleep(30 * time.Second)
+		body, status, err = doReq()
+		if err != nil {
+			return "Error: LI.FI request failed (retry): " + err.Error(), nil
+		}
 	}
-	if len(body) > httpRequestMaxBody {
-		body = body[:httpRequestMaxBody]
-	}
-	out := fmt.Sprintf("Status: %d %s\nBody:\n%s", resp.StatusCode, resp.Status, string(body))
-	if resp.StatusCode >= 400 {
+	out := fmt.Sprintf("Status: %d %s\nBody:\n%s", status, http.StatusText(status), body)
+	if status >= 400 {
 		out += "\n\nLI.FI API error. Check params (chain IDs as integers, token addresses, from_amount in wei)."
 	}
 	return out, nil

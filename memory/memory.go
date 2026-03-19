@@ -14,9 +14,10 @@ import (
 	"custom-agent/wallet/redact"
 )
 
-const (
-	memoryDir = "memories"
-)
+var memoryDir = "memories"
+
+// SetDir sets the memory directory (e.g. for Railway volume mount). Call before using the store.
+func SetDir(dir string) { memoryDir = dir }
 
 // Memory is a stored memory with optional embedding.
 type Memory struct {

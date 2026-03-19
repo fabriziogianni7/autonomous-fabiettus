@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	spendDir    = "spend"
 	spendFile   = "global.jsonl"
+	defaultDir  = "spend"
 	fallbackIn  = 1.0 // USD per 1M input tokens
 	fallbackOut = 2.0 // USD per 1M output tokens
 )
@@ -54,7 +54,11 @@ type modelsJSON struct {
 }
 
 // NewStore creates a spend store. modelsPath is the directory containing x402-router/models.json (e.g. skills-data).
-func NewStore(modelsPath string) *Store {
+// spendDir is where the spend data file is written; if empty, uses "spend".
+func NewStore(modelsPath, spendDir string) *Store {
+	if spendDir == "" {
+		spendDir = defaultDir
+	}
 	s := &Store{
 		dir:        spendDir,
 		modelsPath: filepath.Join(modelsPath, "x402-router", "models.json"),

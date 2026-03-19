@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
-const remindersDir = "reminders"
+var remindersDir = "reminders"
+
+// SetDir sets the reminders directory (e.g. for Railway volume mount). Call before using the store.
+func SetDir(dir string) { remindersDir = dir }
 
 // Reminder is a scheduled message to send to a user.
 type Reminder struct {

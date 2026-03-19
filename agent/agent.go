@@ -43,19 +43,21 @@ func subagentModelForIndex(idx int) string {
 
 // Agent processes messages and returns replies using an LLM.
 type Agent struct {
-	client               *openai.Client
-	parentModel          string                   // model for chat completion; when empty, use default
-	subagentModel        string                   // model for subagents; when empty, use subagentModelForIndex (Groq rotation)
-	subagentModelForRole func(role string) string // optional; when set and role non-empty, overrides subagentModel
-	systemPrompt         string
-	compactor            *compaction.Compactor
-	skipCompaction       bool // when true, bypass compaction (e.g. autonomous mode)
-	tools                *tools.Tools
-	memoryStore          *memory.Store
-	convStore            *conversation.Store
-	skillsDir            string
-	skillsMgr            *skills.Manager
-	spendStore           *spend.Store
+	client                  *openai.Client
+	parentModel             string                   // model for chat completion; when empty, use default
+	subagentModel           string                   // model for subagents; when empty, use subagentModelForIndex (Groq rotation)
+	subagentModelForRole    func(role string) string // optional; when set and role non-empty, overrides subagentModel
+	subagentTimeoutSec      int                      // default 60; used for non-quant subagents
+	subagentQuantTimeoutSec int                      // default 90; used when role=quant
+	systemPrompt            string
+	compactor               *compaction.Compactor
+	skipCompaction          bool // when true, bypass compaction (e.g. autonomous mode)
+	tools                   *tools.Tools
+	memoryStore             *memory.Store
+	convStore               *conversation.Store
+	skillsDir               string
+	skillsMgr               *skills.Manager
+	spendStore              *spend.Store
 }
 
 // New creates an Agent with the given LLM client, system prompt, tools, and optional stores.
@@ -65,7 +67,8 @@ type Agent struct {
 // skipCompaction: when true, bypass compaction entirely (e.g. autonomous mode).
 // skillsDir: optional path to skills directory; when set, skill descriptions are injected into system prompt.
 // modelForRole: optional; when non-nil and spawn_subagents uses role, returns model for that role (autonomous mode).
-func New(client *openai.Client, parentModel string, subagentModel string, systemPrompt string, tokenThreshold int, skipCompaction bool, toolSet *tools.Tools, convStore *conversation.Store, skillsDir string, modelForRole func(role string) string, spendStore *spend.Store) *Agent {
+// subagentTimeoutSec, subagentQuantTimeoutSec: timeouts for subagents; 0 = use package defaults (60, 90).
+func New(client *openai.Client, parentModel string, subagentModel string, systemPrompt string, tokenThreshold int, skipCompaction bool, toolSet *tools.Tools, convStore *conversation.Store, skillsDir string, modelForRole func(role string) string, spendStore *spend.Store, subagentTimeoutSec, subagentQuantTimeoutSec int) *Agent {
 	if parentModel == "" {
 		parentModel = agentParentModel
 	}
@@ -73,20 +76,30 @@ func New(client *openai.Client, parentModel string, subagentModel string, system
 	if skillsDir != "" {
 		skillsMgr = skills.NewManager(skillsDir)
 	}
+	subTimeout := subagentTimeoutSec
+	if subTimeout <= 0 {
+		subTimeout = 60
+	}
+	quantTimeout := subagentQuantTimeoutSec
+	if quantTimeout <= 0 {
+		quantTimeout = 90
+	}
 	return &Agent{
-		client:               client,
-		parentModel:          parentModel,
-		subagentModel:        subagentModel,
-		subagentModelForRole: modelForRole,
-		systemPrompt:         systemPrompt,
-		compactor:            compaction.NewCompactor(client, parentModel, tokenThreshold, spendStore),
-		skipCompaction:       skipCompaction,
-		tools:                toolSet,
-		memoryStore:          toolSet.MemoryStore,
-		convStore:            convStore,
-		skillsDir:            skillsDir,
-		skillsMgr:            skillsMgr,
-		spendStore:           spendStore,
+		client:                  client,
+		parentModel:             parentModel,
+		subagentModel:           subagentModel,
+		subagentModelForRole:    modelForRole,
+		subagentTimeoutSec:      subTimeout,
+		subagentQuantTimeoutSec: quantTimeout,
+		systemPrompt:            systemPrompt,
+		compactor:               compaction.NewCompactor(client, parentModel, tokenThreshold, spendStore),
+		skipCompaction:          skipCompaction,
+		tools:                   toolSet,
+		memoryStore:             toolSet.MemoryStore,
+		convStore:               convStore,
+		skillsDir:               skillsDir,
+		skillsMgr:               skillsMgr,
+		spendStore:              spendStore,
 	}
 }
 
@@ -448,11 +461,35 @@ func (a *Agent) handleSpawnSubagents(ctx context.Context, argsJSON string, msg g
 	if len(specs) == 0 {
 		return "Error: no valid tasks provided."
 	}
-	results, err := a.RunSubagents(ctx, specs, msg, nil)
+	role := strings.ToLower(strings.TrimSpace(args.Role))
+	timeoutSec := a.subagentTimeoutSec
+	if role == "quant" {
+		timeoutSec = a.subagentQuantTimeoutSec
+	}
+	opts := &SubagentOpts{PerChildTimeout: time.Duration(timeoutSec) * time.Second}
+	results, err := a.RunSubagents(ctx, specs, msg, opts)
 	if err != nil {
 		return "Error running sub-agents: " + err.Error()
 	}
+	// Retry once on quant timeout (subagent returned Err)
+	if role == "quant" && hasSubagentError(results) {
+		log.Printf("[agent] quant subagent timeout/error, retrying once")
+		results, err = a.RunSubagents(ctx, specs, msg, opts)
+		if err != nil {
+			return "Error running sub-agents: " + err.Error()
+		}
+	}
 	return FormatSubagentResults(results)
+}
+
+// hasSubagentError returns true if any subagent result has an error.
+func hasSubagentError(results []SubtaskResult) bool {
+	for _, r := range results {
+		if r.Err != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // isTimeoutError returns true if the error indicates an HTTP or context timeout.

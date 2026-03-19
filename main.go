@@ -21,6 +21,7 @@ import (
 	"custom-agent/memory"
 	"custom-agent/opportunity"
 	"custom-agent/reminders"
+	"custom-agent/session"
 	"custom-agent/sessionqueue"
 	"custom-agent/skills"
 	"custom-agent/spend"
@@ -41,6 +42,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
+
+	dataRoot := cfg.DataRoot
+	session.SetDir(filepath.Join(dataRoot, "sessions"))
+	conversation.SetDir(filepath.Join(dataRoot, "conversation_embeddings"))
+	memory.SetDir(filepath.Join(dataRoot, "memories"))
+	reminders.SetDir(filepath.Join(dataRoot, "reminders"))
 
 	personalityPath := "PERSONALITY.md"
 
@@ -142,17 +149,20 @@ func main() {
 			toolSet.SetX402StatsConfig(cfg.X402RouterURL, cfg.X402PermitCap)
 		}
 	}
-	if cfg.SkillsDir != "" {
-		sm := skills.NewManager(cfg.SkillsDir)
-		toolSet.SetSkills(sm)
-		toolSet.SetLLMClient(llm)
-		log.Printf("[skills] enabled, dir=%s", cfg.SkillsDir)
-	}
 	skillsDataPath := cfg.SkillsDir
 	if skillsDataPath == "" {
-		skillsDataPath = "./skills-data"
+		skillsDataPath = "skills-data"
 	}
-	spendStore := spend.NewStore(skillsDataPath)
+	if !filepath.IsAbs(skillsDataPath) {
+		skillsDataPath = filepath.Join(dataRoot, skillsDataPath)
+	}
+	if cfg.SkillsDir != "" {
+		sm := skills.NewManager(skillsDataPath)
+		toolSet.SetSkills(sm)
+		toolSet.SetLLMClient(llm)
+		log.Printf("[skills] enabled, dir=%s", skillsDataPath)
+	}
+	spendStore := spend.NewStore(skillsDataPath, filepath.Join(dataRoot, "spend"))
 	if cfg.AutonomousMode {
 		toolSet.SetSpendStore(spendStore)
 	}
@@ -191,11 +201,13 @@ func main() {
 		policyEngine := policy.NewEngine(policyCfg)
 		approvalDir := cfg.WalletApprovalDir
 		if approvalDir == "" {
-			approvalDir = "wallet-approvals"
+			approvalDir = filepath.Join(dataRoot, "wallet-approvals")
+		} else if !filepath.IsAbs(approvalDir) {
+			approvalDir = filepath.Join(dataRoot, approvalDir)
 		}
 		approvalStore := approval.NewStore(approvalDir, 15*time.Minute)
 		notifier := wallet.NewSenderNotifier(senderRegistry)
-		historyDir := filepath.Join(filepath.Dir(approvalDir), "wallet-history")
+		historyDir := filepath.Join(dataRoot, "wallet-history")
 		historyStore := history.NewStore(historyDir)
 		walletSvc := wallet.NewService(chainRegistry, sgn, policyEngine, approvalStore, notifier, historyStore)
 		toolSet.SetWallet(walletSvc)
@@ -244,7 +256,7 @@ func main() {
 		// Groq defaults: empty = agent's default + rotation
 		skipCompaction = true
 	}
-	a := agent.New(llm, parentModel, subagentModel, systemPrompt, cfg.CompactionThreshold, skipCompaction, toolSet, convStore, cfg.SkillsDir, modelForRole, spendStore)
+	a := agent.New(llm, parentModel, subagentModel, systemPrompt, cfg.CompactionThreshold, skipCompaction, toolSet, convStore, cfg.SkillsDir, modelForRole, spendStore, cfg.SubagentTimeoutSec, cfg.SubagentQuantTimeoutSec)
 
 	queue := sessionqueue.New(func(msg gateway.IncomingMessage) string {
 		return a.HandleMessage(context.Background(), msg)

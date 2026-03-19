@@ -12,9 +12,10 @@ import (
 	"custom-agent/session"
 )
 
-const (
-	storeDir = "conversation_embeddings"
-)
+var storeDir = "conversation_embeddings"
+
+// SetDir sets the conversation store directory (e.g. for Railway volume mount). Call before using the store.
+func SetDir(dir string) { storeDir = dir }
 
 // Entry is a conversation message with embedding for retrieval.
 type Entry struct {

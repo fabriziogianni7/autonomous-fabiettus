@@ -10,12 +10,15 @@ import (
 	"custom-agent/wallet/redact"
 )
 
-const (
-	sessionDir  = "sessions"
-	maxMessages = 20 // keep last N messages to stay within context limits
+const maxMessages = 20 // keep last N messages to stay within context limits
+
+var (
+	sessionDir = "sessions"
+	safeKeyRe  = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 )
 
-var safeKeyRe = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+// SetDir sets the session directory (e.g. for Railway volume mount). Call before using Load/Append/Clear.
+func SetDir(dir string) { sessionDir = dir }
 
 // Message represents a single message in the conversation.
 type Message struct {

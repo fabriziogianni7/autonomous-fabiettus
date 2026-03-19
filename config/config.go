@@ -64,6 +64,10 @@ type Config struct {
 	// Skills: directory for user-installed skills (OpenClaw-style SKILL.md folders). Default: ./skills-data
 	SkillsDir string
 
+	// DataRoot: base directory for all persistent data (sessions, memories, reminders, etc.).
+	// Set via RAILWAY_VOLUME_MOUNT_PATH (Railway) or DATA_ROOT. Default: "."
+	DataRoot string
+
 	// Autonomous mode: use x402 router for LLM instead of Groq, require wallet for permits.
 	AutonomousMode bool   // when true, use X402_ROUTER_URL for LLM, GROQ_API_KEY optional
 	UseGroqLLM     bool   // when true in autonomous mode, use Groq for LLM instead of x402 (for testing)
@@ -96,6 +100,10 @@ type Config struct {
 	X402ModelResearch string // research: web search/info
 	X402ModelRisk     string // risk: exposure/VaR
 	X402ModelSubagent string // default when role omitted or unknown
+
+	// Subagent timeouts (seconds). Quant often needs longer for EV/Kelly calculations.
+	SubagentTimeoutSec      int // default 60
+	SubagentQuantTimeoutSec int // default 90; used when role=quant
 }
 
 // Load reads environment variables from .env (if present) and validates required values.
@@ -138,6 +146,15 @@ func Load() (*Config, error) {
 		X402ModelResearch:              strings.TrimSpace(os.Getenv("X402_MODEL_RESEARCH")),
 		X402ModelRisk:                  strings.TrimSpace(os.Getenv("X402_MODEL_RISK")),
 		X402ModelSubagent:              strings.TrimSpace(os.Getenv("X402_MODEL_SUBAGENT")),
+		SubagentTimeoutSec:             parseInt(os.Getenv("SUBAGENT_TIMEOUT_SEC"), 60),
+		SubagentQuantTimeoutSec:        parseInt(os.Getenv("SUBAGENT_QUANT_TIMEOUT_SEC"), 90),
+	}
+	cfg.DataRoot = strings.TrimSpace(os.Getenv("RAILWAY_VOLUME_MOUNT_PATH"))
+	if cfg.DataRoot == "" {
+		cfg.DataRoot = strings.TrimSpace(os.Getenv("DATA_ROOT"))
+	}
+	if cfg.DataRoot == "" {
+		cfg.DataRoot = "."
 	}
 	if cfg.SkillsDir == "" {
 		cfg.SkillsDir = "./skills-data"
@@ -156,6 +173,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.X402LLMTimeout <= 0 {
 		cfg.X402LLMTimeout = 120
+	}
+	if cfg.SubagentTimeoutSec <= 0 {
+		cfg.SubagentTimeoutSec = 60
+	}
+	if cfg.SubagentQuantTimeoutSec <= 0 {
+		cfg.SubagentQuantTimeoutSec = 90
 	}
 
 	if err := cfg.validate(); err != nil {

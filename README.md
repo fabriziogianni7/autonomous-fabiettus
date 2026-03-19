@@ -8,6 +8,7 @@ A Go-based AI agent that responds to messages via Telegram. Uses Groq's Llama mo
 
 - [Run locally](#run-locally)
 - [Setup](#setup)
+- [Deploy on Railway](#deploy-on-railway)
 - [Tools](#tools)
 - [Personality](#personality)
 - [Gateways](#gateways)
@@ -78,6 +79,17 @@ cp .env.example .env
 Or export: `export TELEGRAM_BOT_TOKEN=...`, `export GROQ_API_KEY=...`, `export BRAVE_SEARCH_API_KEY=...`
 
 Then follow [Run locally](#run-locally) to start the bot.
+
+---
+
+## Deploy on Railway
+
+1. `railway init --name <project>` and `railway add --service agent`
+2. Set env vars: `TELEGRAM_BOT_TOKEN`, `GROQ_API_KEY`, `BRAVE_SEARCH_API_KEY`
+3. Add a volume for persistent data: `railway volume add --mount-path /data --service agent`
+4. Deploy: `railway up --detach -m "Deploy agent"`
+
+Railway sets `RAILWAY_VOLUME_MOUNT_PATH=/data` when a volume is attached. The agent uses this as the data root for sessions, memories, reminders, spend, and wallet-approvals. Without a volume, data is ephemeral (lost on redeploy).
 
 ---
 
