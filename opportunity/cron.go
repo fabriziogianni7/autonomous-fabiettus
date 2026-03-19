@@ -11,7 +11,7 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-const scanPrompt = `Scan for opportunities. 1) Use x402_get_stats for inference spend and runway. 2) Use wallet_get_portfolio_value (chain_id 8453 for Base USDC) for holdings and runway. 3) Use wallet_get_activity for recent inflows/outflows. 4) Check market data via Tokenaru (http_request to https://tokenaru.vercel.app/api/lookup). 5) If capital is idle (mostly USDC), consider buying BTC or ETH as first move—use lifi skill for swaps. 6) Use wallet_simulate_transaction before executing. 7) For each potential trade, use spawn_subagents with role "quant" to compute EV, Kelly fraction, and position size—pass portfolio value, simulate result, gas, prices, and trade type. 8) Execute only if quant returns go and EV > 0. 9) Report what you found and did.`
+const scanPrompt = `Scan for opportunities. Follow STRATEGY.md: Market analysis → Quant analysis → Execution. Report what you found and did.`
 
 // Runner periodically invokes the agent to scan for opportunities.
 type Runner struct {
