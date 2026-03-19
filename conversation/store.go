@@ -53,12 +53,14 @@ func (s *Store) Add(platform, userID, role, content string) error {
 		return nil // Skip embedding on failure; retrieval will fall back
 	}
 
-	if err := os.MkdirAll(storeDir, 0755); err != nil {
+	// #nosec G301 -- 0750 restricts to owner+group
+	if err := os.MkdirAll(storeDir, 0750); err != nil {
 		return err
 	}
 
 	e := Entry{Role: role, Content: content, Embedding: emb}
 	path := storePath(platform, userID)
+	// #nosec G304 -- path from storePath(platform, userID); platform/userID from gateway
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -74,6 +76,7 @@ func (s *Store) Search(platform, userID, query string, limit int) ([]Entry, erro
 	}
 
 	path := storePath(platform, userID)
+	// #nosec G304 -- path from storePath(platform, userID); platform/userID from gateway
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {

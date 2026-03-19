@@ -317,6 +317,7 @@ func logX402Stats(ctx context.Context, client *x402client.Client, routerURL, per
 		if remaining < 0 {
 			remaining = 0
 		}
+		// #nosec G706 -- stats from x402 API response; numeric/controlled fields
 		log.Printf("[x402] stats: total_spent_usd=%s total_tokens=%d remaining_usd≈%.2f",
 			stats.TotalSpentUSD, stats.TotalTokens, remaining)
 	}

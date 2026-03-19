@@ -132,7 +132,8 @@ func (s *Store) Record(model string, promptTokens, completionTokens int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := os.MkdirAll(s.dir, 0755); err != nil {
+	// #nosec G301 -- 0750 restricts to owner+group
+	if err := os.MkdirAll(s.dir, 0750); err != nil {
 		return
 	}
 	f, err := os.OpenFile(s.path(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)

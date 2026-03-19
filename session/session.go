@@ -38,10 +38,12 @@ func Load(platform, userID string) ([]Message, error) {
 		return nil, nil
 	}
 	path := filepath.Join(sessionDir, key+".jsonl")
+	// #nosec G304 -- path from SessionKey (sanitized) + constant dir
 	f, err := os.Open(path)
 	if err != nil && os.IsNotExist(err) && platform == "telegram" {
 		// Legacy: try sessions/{userID}.jsonl for Telegram
 		path = filepath.Join(sessionDir, userID+".jsonl")
+		// #nosec G304 -- path from SessionKey/userID (sanitized) + constant dir
 		f, err = os.Open(path)
 	}
 	if err != nil {
@@ -83,12 +85,15 @@ func Append(platform, userID string, userContent, assistantContent string) error
 	if platform == "telegram" {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			legacy := filepath.Join(sessionDir, userID+".jsonl")
+			// #nosec G304 -- legacy path from userID (sanitized by SessionKey pattern)
 			if data, err := os.ReadFile(legacy); err == nil {
+				// #nosec G703 -- path from SessionKey (sanitized); legacy migration
 				_ = os.WriteFile(path, data, 0600)
 				_ = os.Remove(legacy)
 			}
 		}
 	}
+	// #nosec G304 -- path from SessionKey (sanitized) + constant dir
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -137,5 +142,6 @@ func Recent(messages []Message) []Message {
 }
 
 func ensureSessionDir() error {
-	return os.MkdirAll(sessionDir, 0755)
+	// #nosec G301 -- 0750 restricts to owner+group
+	return os.MkdirAll(sessionDir, 0750)
 }

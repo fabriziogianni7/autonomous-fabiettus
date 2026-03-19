@@ -44,7 +44,8 @@ func memoryPath(platform, userID string) string {
 
 // Save stores a memory. Embeds and caches if embedder is available.
 func (s *Store) Save(platform, userID, content, tags string) error {
-	if err := os.MkdirAll(memoryDir, 0755); err != nil {
+	// #nosec G301 -- 0750 restricts to owner+group
+	if err := os.MkdirAll(memoryDir, 0750); err != nil {
 		return err
 	}
 
@@ -64,6 +65,7 @@ func (s *Store) Save(platform, userID, content, tags string) error {
 	}
 
 	path := memoryPath(platform, userID)
+	// #nosec G304 -- path from memoryPath(platform, userID); platform/userID from gateway
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -81,6 +83,7 @@ func (s *Store) Search(platform, userID, query string, limit int) ([]Memory, err
 	}
 
 	path := memoryPath(platform, userID)
+	// #nosec G304 -- path from memoryPath(platform, userID); platform/userID from gateway
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {

@@ -40,7 +40,8 @@ func path() string {
 
 // Add appends a reminder and returns its ID.
 func (s *Store) Add(platform, userID, chatID, schedule, message string) (string, error) {
-	if err := os.MkdirAll(remindersDir, 0755); err != nil {
+	// #nosec G301 -- 0750 restricts to owner+group
+	if err := os.MkdirAll(remindersDir, 0750); err != nil {
 		return "", err
 	}
 
