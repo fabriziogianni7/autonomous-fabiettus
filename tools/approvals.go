@@ -30,9 +30,9 @@ func init() {
 
 // Safe commands that run without approval (exact match of first word).
 // echo is removed: it can exfiltrate env vars (e.g. echo $PRIVATE_KEY).
+// head, tail, wc, file removed: they can read arbitrary files (e.g. head /etc/shadow).
 var safeCommands = []string{
 	"ls", "pwd", "whoami", "date", "id",
-	"head", "tail", "wc", "file",
 }
 
 // LoadApprovals reads approved commands from exec-approvals.json.

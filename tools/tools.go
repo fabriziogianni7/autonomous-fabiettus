@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"custom-agent/reminders"
 	"custom-agent/skills"
 	"custom-agent/spend"
+	"custom-agent/wallet/redact"
 	"custom-agent/x402client"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -1422,10 +1424,62 @@ func (t *Tools) deleteReminder(args map[string]string) (string, error) {
 const (
 	httpRequestMaxBody  = 64 * 1024 // 64KB
 	httpRequestTimeout  = 30 * time.Second
-	httpRequestRedactHd = "authorization,cookie,x-api-key,x-auth-token"
+	httpRequestRedactHd = "authorization,cookie,x-api-key,x-auth-token,proxy-authorization,set-cookie,x-csrf-token,x-session-id"
 	lifiBaseURL         = "https://li.quest/v1"
 	lifiTimeout         = 30 * time.Second
 )
+
+// allowLoopbackForTesting enables loopback in isURLAllowed for httptest-based tests. Do not set in production.
+var allowLoopbackForTesting bool
+
+// isURLAllowed rejects URLs that could target internal/private services (SSRF mitigation).
+func isURLAllowed(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("scheme %q not allowed", scheme)
+	}
+	host := strings.ToLower(strings.TrimSpace(u.Hostname()))
+	if host == "" {
+		return fmt.Errorf("empty host")
+	}
+	if host == "localhost" || strings.HasSuffix(host, ".local") {
+		if !allowLoopbackForTesting {
+			return fmt.Errorf("localhost/internal hostnames blocked")
+		}
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return err
+	}
+	for _, ip := range ips {
+		if ip4 := ip.To4(); ip4 != nil {
+			if ip4[0] == 127 {
+				if !allowLoopbackForTesting {
+					return fmt.Errorf("loopback blocked")
+				}
+				continue
+			}
+			if ip4[0] == 10 ||
+				(ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31) ||
+				(ip4[0] == 192 && ip4[1] == 168) ||
+				(ip4[0] == 169 && ip4[1] == 254) {
+				return fmt.Errorf("private IP blocked")
+			}
+		} else {
+			if ip.Equal(net.IPv6loopback) {
+				return fmt.Errorf("loopback blocked")
+			}
+			if len(ip) >= 2 && ((ip[0] == 0xfe && (ip[1]&0xc0) == 0x80) || ip[0] == 0xfc || ip[0] == 0xfd) {
+				return fmt.Errorf("private IPv6 blocked")
+			}
+		}
+	}
+	return nil
+}
 
 func (t *Tools) httpRequest(args map[string]string, rawArgs map[string]interface{}) (string, error) {
 	rawURL := strings.TrimSpace(args["url"])
@@ -1434,6 +1488,9 @@ func (t *Tools) httpRequest(args map[string]string, rawArgs map[string]interface
 	}
 	if _, err := url.Parse(rawURL); err != nil {
 		return "Error: invalid url: " + err.Error(), nil
+	}
+	if err := isURLAllowed(rawURL); err != nil {
+		return "Error: URL not allowed (blocked internal/private addresses).", nil
 	}
 	method := strings.TrimSpace(strings.ToUpper(args["method"]))
 	if method == "" {
@@ -1521,7 +1578,7 @@ func (t *Tools) httpRequest(args map[string]string, rawArgs map[string]interface
 		}
 	}
 	out.WriteString("Body:\n")
-	out.WriteString(string(respBody))
+	out.WriteString(redact.Redact(string(respBody)))
 	if truncated {
 		out.WriteString("\n\n[truncated]")
 	}
@@ -1707,6 +1764,7 @@ func runCommand(command string) (string, error) {
 }
 
 func executeCommand(command string) (string, error) {
+	// #nosec G204 -- run_command tool; blocked patterns, safe list, and approval mitigate injection
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = getWorkDir()
 	var stdout, stderr bytes.Buffer
@@ -1727,8 +1785,12 @@ func executeCommand(command string) (string, error) {
 }
 
 func readFile(path string) (string, error) {
-	path = resolvePath(path)
-	data, err := os.ReadFile(path)
+	resolved, err := resolvePathSafe(path)
+	if err != nil {
+		return "", err
+	}
+	// #nosec G304 -- path validated by resolvePathSafe
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return "", fmt.Errorf("read failed: %w", err)
 	}
@@ -1736,14 +1798,19 @@ func readFile(path string) (string, error) {
 }
 
 func writeFile(path, content string) (string, error) {
-	path = resolvePath(path)
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	resolved, err := resolvePathSafe(path)
+	if err != nil {
+		return "", err
+	}
+	// #nosec G301 -- 0750 restricts to owner+group
+	if err := os.MkdirAll(filepath.Dir(resolved), 0750); err != nil {
 		return "", fmt.Errorf("mkdir failed: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	// #nosec G306 -- 0600 restricts to owner
+	if err := os.WriteFile(resolved, []byte(content), 0600); err != nil {
 		return "", fmt.Errorf("write failed: %w", err)
 	}
-	return fmt.Sprintf("Wrote %d bytes to %s", len(content), path), nil
+	return fmt.Sprintf("Wrote %d bytes to %s", len(content), resolved), nil
 }
 
 func (t *Tools) webSearch(query string) (string, error) {
@@ -1806,9 +1873,28 @@ func getWorkDir() string {
 	return wd
 }
 
-func resolvePath(path string) string {
-	if filepath.IsAbs(path) {
-		return path
+func resolvePathSafe(path string) (string, error) {
+	base := getWorkDir()
+	baseAbs, err := filepath.Abs(base)
+	if err != nil {
+		return "", fmt.Errorf("invalid base path: %w", err)
 	}
-	return filepath.Join(getWorkDir(), path)
+	if path == "" {
+		return "", fmt.Errorf("empty path")
+	}
+	var resolved string
+	if filepath.IsAbs(path) {
+		resolved = filepath.Clean(path)
+	} else {
+		resolved = filepath.Clean(filepath.Join(base, path))
+	}
+	resolvedAbs, err := filepath.Abs(resolved)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %w", err)
+	}
+	rel, err := filepath.Rel(baseAbs, resolvedAbs)
+	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path escapes allowed directory")
+	}
+	return resolvedAbs, nil
 }
