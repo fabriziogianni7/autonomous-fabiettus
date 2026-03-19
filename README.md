@@ -111,9 +111,6 @@ The agent loop runs until the LLM returns a final text response or hits the tool
 ## Personality
 
 Edit `PERSONALITY.md` to define the bot's persona. Its contents are injected as the system prompt at startup. Change the tone, style, or add rules—the bot will adopt whatever you write.
-
-In **autonomous mode**, the bot uses `PERSONALITY_AUTONOMOUS.md` instead, which defines Fabietto as an autonomous profit-seeking agent focused on growing capital and sustaining its own operating costs.
-
 ---
 
 ## Gateways
@@ -191,11 +188,12 @@ See `WALLET.md` for tool usage. Transactions above the spend limit trigger a not
 
 ## Autonomous profit mode
 
-When `AUTONOMOUS_MODE=1`, the agent pays for its own LLM inference via x402 instead of Groq. Wallet is required; `GROQ_API_KEY` is not.
+When `AUTONOMOUS_MODE=1`, the agent pays for its own LLM inference via x402 instead of Groq. Wallet is required; `GROQ_API_KEY` is not (unless `USE_GROQ_LLM=1`).
 
 | Env var | Description |
 |---------|-------------|
 | `AUTONOMOUS_MODE` | Set to `1`, `true`, or `yes` to enable |
+| `USE_GROQ_LLM` | Optional. Set to `1` to use Groq for LLM in autonomous mode (for testing; avoids USDC spend on inference). Requires `GROQ_API_KEY`. |
 | `X402_ROUTER_URL` | Router base URL (default `https://ai.xgate.run/v1`) |
 | `X402_PERMIT_CAP` | Session spend cap in USDC (default `50`) |
 | `X402_MODEL` | Model for x402 router (default `openai:gpt-4`; use `auto` for router auto-selection) |

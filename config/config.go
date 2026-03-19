@@ -70,6 +70,7 @@ type Config struct {
 
 	// Autonomous mode: use x402 router for LLM instead of Groq, require wallet for permits.
 	AutonomousMode bool   // when true, use X402_ROUTER_URL for LLM, GROQ_API_KEY optional
+	UseGroqLLM     bool   // when true in autonomous mode, use Groq for LLM instead of x402 (for testing)
 	X402RouterURL  string // default https://ai.xgate.run/v1
 	X402PermitCap  string // optional session spend cap in USDC (default "50")
 	X402Model      string // model for x402 router (default openai:gpt-4); use "auto" for router auto-selection
@@ -128,6 +129,7 @@ func Load() (*Config, error) {
 		WalletDefaultChainID:           parseInt64(os.Getenv("WALLET_DEFAULT_CHAIN_ID"), 0),
 		SkillsDir:                      strings.TrimSpace(os.Getenv("SKILLS_DIR")),
 		AutonomousMode:                 parseBool(os.Getenv("AUTONOMOUS_MODE")),
+		UseGroqLLM:                     parseBool(os.Getenv("USE_GROQ_LLM")),
 		X402RouterURL:                  strings.TrimSpace(os.Getenv("X402_ROUTER_URL")),
 		X402PermitCap:                  strings.TrimSpace(os.Getenv("X402_PERMIT_CAP")),
 		X402Model:                      strings.TrimSpace(os.Getenv("X402_MODEL")),
@@ -197,9 +199,12 @@ func (c *Config) validate() error {
 				missing = append(missing, "TELEGRAM_OWNER_CHAT_ID (chat to receive scan output and approvals)")
 			}
 		}
-		// Autonomous mode: require Base (chain 8453) for x402 USDC payments
+		// Autonomous mode: require Base (chain 8453) for x402 USDC payments (http_request, etc.)
 		if !hasBaseChain(c) {
 			missing = append(missing, "Base (chain 8453) in WALLET_CHAINS or CHAIN_ID=8453 (x402 requires USDC on Base)")
+		}
+		if c.UseGroqLLM && c.GroqAPIKey == "" {
+			missing = append(missing, "GROQ_API_KEY (required when USE_GROQ_LLM=1)")
 		}
 		// Autonomous mode: require Alchemy for portfolio valuation and USDC runway checks
 		if !c.AlchemyEnabled() {

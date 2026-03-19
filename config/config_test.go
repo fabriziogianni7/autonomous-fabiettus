@@ -63,6 +63,66 @@ func TestLoad_AutonomousMode_SucceedsWithWallet(t *testing.T) {
 	}
 }
 
+func TestLoad_AutonomousMode_UseGroqLLM_RequiresGroqKey(t *testing.T) {
+	os.Setenv("AUTONOMOUS_MODE", "1")
+	os.Setenv("USE_GROQ_LLM", "1")
+	os.Setenv("TELEGRAM_BOT_TOKEN", "test")
+	os.Setenv("BRAVE_SEARCH_API_KEY", "test")
+	os.Setenv("EVM_RPC_URL", "https://eth-mainnet.g.alchemy.com/v2/test")
+	os.Setenv("WALLET_PRIVATE_KEY", "0x0000000000000000000000000000000000000000000000000000000000000001")
+	os.Setenv("WALLET_CHAINS", `[{"chain_id":8453,"rpc_url":"https://base-mainnet.g.alchemy.com/v2/test","explorer":"https://basescan.org","name":"Base"}]`)
+	os.Unsetenv("GROQ_API_KEY")
+	defer func() {
+		os.Unsetenv("AUTONOMOUS_MODE")
+		os.Unsetenv("USE_GROQ_LLM")
+		os.Unsetenv("TELEGRAM_BOT_TOKEN")
+		os.Unsetenv("BRAVE_SEARCH_API_KEY")
+		os.Unsetenv("EVM_RPC_URL")
+		os.Unsetenv("WALLET_PRIVATE_KEY")
+		os.Unsetenv("WALLET_CHAINS")
+	}()
+
+	_, err := Load()
+	if err == nil {
+		t.Error("expected error when USE_GROQ_LLM=1 without GROQ_API_KEY")
+	}
+	if err != nil && !strings.Contains(err.Error(), "GROQ_API_KEY") {
+		t.Errorf("expected GROQ_API_KEY error, got: %v", err)
+	}
+}
+
+func TestLoad_AutonomousMode_UseGroqLLM_SucceedsWithGroqKey(t *testing.T) {
+	os.Setenv("AUTONOMOUS_MODE", "1")
+	os.Setenv("USE_GROQ_LLM", "1")
+	os.Setenv("GROQ_API_KEY", "test-groq-key")
+	os.Setenv("TELEGRAM_BOT_TOKEN", "test")
+	os.Setenv("BRAVE_SEARCH_API_KEY", "test")
+	os.Setenv("EVM_RPC_URL", "https://eth-mainnet.g.alchemy.com/v2/test")
+	os.Setenv("WALLET_PRIVATE_KEY", "0x0000000000000000000000000000000000000000000000000000000000000001")
+	os.Setenv("WALLET_CHAINS", `[{"chain_id":8453,"rpc_url":"https://base-mainnet.g.alchemy.com/v2/test","explorer":"https://basescan.org","name":"Base"}]`)
+	defer func() {
+		os.Unsetenv("AUTONOMOUS_MODE")
+		os.Unsetenv("USE_GROQ_LLM")
+		os.Unsetenv("GROQ_API_KEY")
+		os.Unsetenv("TELEGRAM_BOT_TOKEN")
+		os.Unsetenv("BRAVE_SEARCH_API_KEY")
+		os.Unsetenv("EVM_RPC_URL")
+		os.Unsetenv("WALLET_PRIVATE_KEY")
+		os.Unsetenv("WALLET_CHAINS")
+	}()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("autonomous mode with USE_GROQ_LLM and GROQ_API_KEY should succeed: %v", err)
+	}
+	if !cfg.AutonomousMode {
+		t.Error("expected AutonomousMode true")
+	}
+	if !cfg.UseGroqLLM {
+		t.Error("expected UseGroqLLM true")
+	}
+}
+
 func TestLoad_NonAutonomous_RequiresGroq(t *testing.T) {
 	os.Unsetenv("AUTONOMOUS_MODE")
 	os.Setenv("TELEGRAM_BOT_TOKEN", "test")
