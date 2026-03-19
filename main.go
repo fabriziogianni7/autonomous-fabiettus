@@ -43,9 +43,7 @@ func main() {
 	}
 
 	personalityPath := "PERSONALITY.md"
-	if cfg.AutonomousMode {
-		personalityPath = "PERSONALITY_AUTONOMOUS.md"
-	}
+
 	personality, err := os.ReadFile(personalityPath)
 	if err != nil {
 		log.Fatalf("failed to load %s: %v", personalityPath, err)
@@ -57,7 +55,7 @@ func main() {
 		if minBase == "" {
 			minBase = "10"
 		}
-		toolInstruction += " Reserve at least $" + minBase + " USDC on Base (chain 8453) for inference; never trade below."
+		toolInstruction += " Reserve at least $" + minBase + " USDC on Base (chain 8453) for inference; never trade below. If USDC on Base falls below this, swap ETH/BTC or other assets to USDC via lifi to restore reserves."
 	}
 	if cfg.SkillsDir != "" {
 		toolInstruction += " When the user asks to add, create, or install a skill (even without saying newSkill), compose the SKILL.md content with YAML frontmatter and body, then use write_skill. The tool automatically runs security and feasibility checks before saving."
@@ -91,9 +89,20 @@ func main() {
 			}
 		}
 	}
-	// LLM client: autonomous mode uses x402 router; else Groq
+	// LLM client: autonomous mode uses x402 router unless USE_GROQ_LLM; else Groq
 	var llm *openai.Client
-	if cfg.AutonomousMode {
+	useGroq := !cfg.AutonomousMode || cfg.UseGroqLLM
+	if useGroq {
+		if cfg.GroqAPIKey == "" {
+			log.Fatal("[llm] GROQ_API_KEY required")
+		}
+		llmConfig := openai.DefaultConfig(cfg.GroqAPIKey)
+		llmConfig.BaseURL = "https://api.groq.com/openai/v1"
+		llm = openai.NewClientWithConfig(llmConfig)
+		if cfg.AutonomousMode && cfg.UseGroqLLM {
+			log.Printf("[autonomous] LLM via Groq (USE_GROQ_LLM=1 for testing)")
+		}
+	} else {
 		if x402Client == nil {
 			log.Fatal("[autonomous] x402 client required for LLM; ensure wallet is configured")
 		}
@@ -102,10 +111,6 @@ func main() {
 		llmConfig.HTTPClient = x402Client.Client
 		llm = openai.NewClientWithConfig(llmConfig)
 		log.Printf("[autonomous] LLM via x402 router %s", cfg.X402RouterURL)
-	} else {
-		llmConfig := openai.DefaultConfig(cfg.GroqAPIKey)
-		llmConfig.BaseURL = "https://api.groq.com/openai/v1"
-		llm = openai.NewClientWithConfig(llmConfig)
 	}
 
 	// Optional: embedding client for memory and compaction (lazy - only used when needed)
@@ -243,11 +248,14 @@ func main() {
 	subagentModel := ""
 	skipCompaction := false
 	var modelForRole func(role string) string
-	if cfg.AutonomousMode {
+	if cfg.AutonomousMode && !cfg.UseGroqLLM {
 		parentModel = cfg.X402Model
 		subagentModel = cfg.X402Model
 		skipCompaction = true
 		modelForRole = func(role string) string { return cfg.ModelForRole(role) }
+	} else if cfg.AutonomousMode && cfg.UseGroqLLM {
+		// Groq defaults: empty = agent's default + rotation
+		skipCompaction = true
 	}
 	a := agent.New(llm, parentModel, subagentModel, systemPrompt, cfg.CompactionThreshold, skipCompaction, toolSet, convStore, cfg.SkillsDir, modelForRole, spendStore)
 
