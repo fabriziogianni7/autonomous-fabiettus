@@ -3,7 +3,9 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"html"
 	"log"
+	"regexp"
 	"strconv"
 	"sync"
 
@@ -24,6 +26,13 @@ func NewTelegram(token string) *TelegramGateway {
 	return &TelegramGateway{token: token}
 }
 
+// convertMarkdownBoldToHTML converts **bold** to <b>bold</b> for Telegram HTML parse mode.
+// Escapes HTML entities in content so Telegram renders correctly.
+func convertMarkdownBoldToHTML(s string) string {
+	escaped := html.EscapeString(s)
+	return regexp.MustCompile(`\*\*(.+?)\*\*`).ReplaceAllString(escaped, "<b>$1</b>")
+}
+
 // Send delivers an outbound message to the chat. Implements Sender.
 func (g *TelegramGateway) Send(ctx context.Context, platform, userID, chatID, text string) error {
 	g.mu.RLock()
@@ -36,7 +45,8 @@ func (g *TelegramGateway) Send(ctx context.Context, platform, userID, chatID, te
 	if err != nil {
 		return fmt.Errorf("telegram: invalid chat_id %q: %w", chatID, err)
 	}
-	msg := tgbotapi.NewMessage(cid, text)
+	msg := tgbotapi.NewMessage(cid, convertMarkdownBoldToHTML(text))
+	msg.ParseMode = "HTML"
 	_, err = bot.Send(msg)
 	return err
 }
@@ -73,15 +83,16 @@ func (g *TelegramGateway) Run(ctx context.Context, handler Handler) error {
 
 			incoming := IncomingMessage{
 				Platform:  "telegram",
-				UserID:   fmt.Sprintf("%d", msg.From.ID),
-				ChatID:   fmt.Sprintf("%d", msg.Chat.ID),
-				Text:     msg.Text,
+				UserID:    fmt.Sprintf("%d", msg.From.ID),
+				ChatID:    fmt.Sprintf("%d", msg.Chat.ID),
+				Text:      msg.Text,
 				ReplyToID: fmt.Sprintf("%d", msg.MessageID),
 			}
 
 			reply := handler(incoming)
 
-			response := tgbotapi.NewMessage(msg.Chat.ID, reply)
+			response := tgbotapi.NewMessage(msg.Chat.ID, convertMarkdownBoldToHTML(reply))
+			response.ParseMode = "HTML"
 			response.ReplyToMessageID = msg.MessageID
 			if _, err := bot.Send(response); err != nil {
 				log.Printf("[telegram] send error: %v", err)
