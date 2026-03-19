@@ -165,22 +165,9 @@ func main() {
 	}
 	var starters []gwStarter
 	if cfg.TelegramBotToken != "" {
-		tg := gateway.NewTelegram(cfg.TelegramBotToken)
+		tg := gateway.NewTelegram(cfg.TelegramBotToken, cfg.TelegramAllowedUserID)
 		senderRegistry.Register("telegram", tg)
 		starters = append(starters, gwStarter{"telegram", tg})
-	}
-	if cfg.DiscordToken != "" {
-		dc := gateway.NewDiscord(cfg.DiscordToken)
-		senderRegistry.Register("discord", dc)
-		starters = append(starters, gwStarter{"discord", dc})
-	}
-	if cfg.HTTPPort != "" {
-		starters = append(starters, gwStarter{"http", gateway.NewHTTP(cfg.HTTPPort)})
-	}
-	if cfg.SignalCliURL != "" && cfg.SignalNumber != "" {
-		sg := gateway.NewSignal(cfg.SignalCliURL, cfg.SignalNumber)
-		senderRegistry.Register("signal", sg)
-		starters = append(starters, gwStarter{"signal", sg})
 	}
 
 	// Wallet: optional. When enabled, create chain registry, signer, policy, approval, history, service.

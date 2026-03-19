@@ -4,7 +4,7 @@ import "context"
 
 // IncomingMessage is the normalized format for messages from any platform.
 type IncomingMessage struct {
-	Platform  string // "telegram", "discord", "http", "signal"
+	Platform  string // "telegram"
 	UserID    string // platform-specific user identifier
 	ChatID    string // where to send the reply (channel, chat, etc.)
 	Text      string

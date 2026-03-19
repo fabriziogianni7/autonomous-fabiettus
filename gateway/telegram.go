@@ -7,6 +7,7 @@ import (
 	"log"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -16,14 +17,16 @@ import (
 
 // TelegramGateway implements Gateway and Sender for Telegram.
 type TelegramGateway struct {
-	token string
-	bot   *tgbotapi.BotAPI
-	mu    sync.RWMutex
+	token         string
+	allowedUserID string // when set, only messages from this user are processed
+	bot           *tgbotapi.BotAPI
+	mu            sync.RWMutex
 }
 
 // NewTelegram creates a Telegram gateway. Token must be non-empty.
-func NewTelegram(token string) *TelegramGateway {
-	return &TelegramGateway{token: token}
+// allowedUserID: when non-empty, only messages from this Telegram user ID are processed (owner-only mode).
+func NewTelegram(token string, allowedUserID string) *TelegramGateway {
+	return &TelegramGateway{token: token, allowedUserID: strings.TrimSpace(allowedUserID)}
 }
 
 // convertMarkdownBoldToHTML converts **bold** to <b>bold</b> for Telegram HTML parse mode.
@@ -79,11 +82,16 @@ func (g *TelegramGateway) Run(ctx context.Context, handler Handler) error {
 			}
 
 			msg := update.Message
+			userIDStr := fmt.Sprintf("%d", msg.From.ID)
+			if g.allowedUserID != "" && userIDStr != g.allowedUserID {
+				log.Printf("[telegram] ignored message from user %s (not allowed)", userIDStr)
+				continue
+			}
 			log.Printf("[telegram] [%s] %s", msg.From.UserName, redact.Redact(msg.Text))
 
 			incoming := IncomingMessage{
 				Platform:  "telegram",
-				UserID:    fmt.Sprintf("%d", msg.From.ID),
+				UserID:    userIDStr,
 				ChatID:    fmt.Sprintf("%d", msg.Chat.ID),
 				Text:      msg.Text,
 				ReplyToID: fmt.Sprintf("%d", msg.MessageID),

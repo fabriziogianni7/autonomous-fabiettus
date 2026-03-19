@@ -44,10 +44,6 @@ type Config struct {
 	TelegramBotToken    string
 	GroqAPIKey          string
 	BraveSearchAPIKey   string
-	DiscordToken        string // optional
-	HTTPPort            string // optional, e.g. "5000"
-	SignalCliURL        string // optional, signal-cli-rest-api URL
-	SignalNumber        string // optional, bot's Signal number
 	CompactionThreshold int    // optional, token count to trigger compaction (default 4000)
 	OllamaURL           string // optional, e.g. "http://localhost:11434" for embeddings
 	OllamaEmbedModel    string // optional, e.g. "nomic-embed-text" (default)
@@ -78,6 +74,7 @@ type Config struct {
 	// Opportunity scan cron (autonomous mode only). 0 = disabled.
 	OpportunityScanIntervalMinutes int    // default 0
 	TelegramOwnerChatID            string // chat ID to receive scan output and approvals (routed via existing bot)
+	TelegramAllowedUserID          string // when set, only this Telegram user ID can chat with the bot (owner-only)
 
 	// Alchemy Data API (optional). When set, portfolio tools (wallet_get_portfolio, wallet_get_portfolio_value,
 	// wallet_get_activity, wallet_simulate_transaction) are enabled. Uses Token API, Prices API, Transfers API, Simulation API.
@@ -110,10 +107,6 @@ func Load() (*Config, error) {
 		TelegramBotToken:    strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")),
 		GroqAPIKey:          strings.TrimSpace(os.Getenv("GROQ_API_KEY")),
 		BraveSearchAPIKey:   strings.TrimSpace(os.Getenv("BRAVE_SEARCH_API_KEY")),
-		DiscordToken:        strings.TrimSpace(os.Getenv("DISCORD_BOT_TOKEN")),
-		HTTPPort:            strings.TrimSpace(os.Getenv("HTTP_PORT")),
-		SignalCliURL:        strings.TrimSpace(os.Getenv("SIGNAL_CLI_URL")),
-		SignalNumber:        strings.TrimSpace(os.Getenv("SIGNAL_NUMBER")),
 		CompactionThreshold: parseInt(os.Getenv("CONTEXT_COMPACTION_THRESHOLD"), 4000),
 		OllamaURL:           strings.TrimSpace(os.Getenv("OLLAMA_URL")),
 		OllamaEmbedModel:    strings.TrimSpace(os.Getenv("OLLAMA_EMBED_MODEL")),
@@ -135,6 +128,7 @@ func Load() (*Config, error) {
 		X402Model:                      strings.TrimSpace(os.Getenv("X402_MODEL")),
 		OpportunityScanIntervalMinutes: parseInt(os.Getenv("OPPORTUNITY_SCAN_INTERVAL_MINUTES"), 0),
 		TelegramOwnerChatID:            strings.TrimSpace(os.Getenv("TELEGRAM_OWNER_CHAT_ID")),
+		TelegramAllowedUserID:          strings.TrimSpace(os.Getenv("TELEGRAM_ALLOWED_USER_ID")),
 		AlchemyAPIKey:                  strings.TrimSpace(os.Getenv("ALCHEMY_API_KEY")),
 		AlchemyBaseURL:                 strings.TrimSpace(os.Getenv("ALCHEMY_BASE_URL")),
 		X402MinBaseUSDC:                strings.TrimSpace(os.Getenv("X402_MIN_BASE_USDC")),
@@ -221,15 +215,9 @@ func (c *Config) validate() error {
 		missing = append(missing, "BRAVE_SEARCH_API_KEY")
 	}
 
-	// At least one gateway must be enabled
-	if c.TelegramBotToken == "" && c.DiscordToken == "" && c.HTTPPort == "" &&
-		!(c.SignalCliURL != "" && c.SignalNumber != "") {
-		missing = append(missing, "TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, HTTP_PORT, or SIGNAL_CLI_URL+SIGNAL_NUMBER (at least one)")
-	}
-
-	// Signal requires both URL and number
-	if (c.SignalCliURL != "" && c.SignalNumber == "") || (c.SignalCliURL == "" && c.SignalNumber != "") {
-		missing = append(missing, "SIGNAL_CLI_URL and SIGNAL_NUMBER must be set together")
+	// Telegram is the only gateway
+	if c.TelegramBotToken == "" {
+		missing = append(missing, "TELEGRAM_BOT_TOKEN")
 	}
 
 	// Wallet: if EVM_RPC_URL set, require WALLET_PRIVATE_KEY (or backend-specific key)

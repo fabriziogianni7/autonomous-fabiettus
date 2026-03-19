@@ -1,6 +1,6 @@
 # Custom Agent
 
-A Go-based AI agent that responds to messages via multiple gateways (Telegram, Discord, HTTP, Signal). Uses Groq's Llama model with tools for file access, web search, memory, reminders, sub-agents, and optional EVM wallet operations. Step one of building an OpenClaw-like agent.
+A Go-based AI agent that responds to messages via Telegram. Uses Groq's Llama model with tools for file access, web search, memory, reminders, sub-agents, and optional EVM wallet operations. Step one of building an OpenClaw-like agent.
 
 ---
 
@@ -18,6 +18,7 @@ A Go-based AI agent that responds to messages via multiple gateways (Telegram, D
 - [Skills](#skills)
 - [Contributing](#contributing)
 - [Project structure](#project-structure)
+- [Security](#security)
 
 ---
 
@@ -26,7 +27,7 @@ A Go-based AI agent that responds to messages via multiple gateways (Telegram, D
 ### Prerequisites
 
 - Go 1.21+
-- API keys: Groq, Brave Search, and at least one gateway (e.g. Telegram)
+- API keys: Groq, Brave Search, and Telegram
 
 ### Quick start
 
@@ -45,11 +46,13 @@ cp .env.example .env
 go run .
 ```
 
-Config is loaded from `.env` (if present) and validated at startup. At least one gateway must be configured.
+Config is loaded from `.env` (if present) and validated at startup. Telegram is required.
 
 ### Test
 
-Message your bot on Telegram (or your configured gateway). It will respond using Groq's Llama 3.1 8B model. Conversation history is stored per user in `sessions/` (JSONL files), so the bot remembers context—e.g. "what did I say earlier?" works.
+Message your bot on Telegram. It will respond using Groq's Llama 3.1 8B model. Conversation history is stored per user in `sessions/` (JSONL files), so the bot remembers context—e.g. "what did I say earlier?" works.
+
+**Owner-only:** Set `TELEGRAM_ALLOWED_USER_ID` to your Telegram user ID to restrict chat to yourself. Other users' messages are ignored.
 
 **Commands:** Send `/new` to clear your session. Send `newSkill` to add a new skill interactively.
 
@@ -115,33 +118,12 @@ Edit `PERSONALITY.md` to define the bot's persona. Its contents are injected as 
 
 ## Gateways
 
-The bot supports multiple platforms. Enable any combination:
+The bot uses Telegram only.
 
-| Gateway | Env vars | Description |
-|---------|----------|-------------|
-| Telegram | `TELEGRAM_BOT_TOKEN` | Telegram bot |
-| Discord | `DISCORD_BOT_TOKEN` | Discord bot |
-| HTTP | `HTTP_PORT` | REST API at `POST /chat` with `{"user_id":"x","message":"y"}` |
-| Signal | `SIGNAL_CLI_URL`, `SIGNAL_NUMBER` | Signal via [signal-cli-rest-api](https://github.com/bbernhard/signal-cli-rest-api) (run separately, e.g. Docker) |
-
-At least one gateway must be configured.
-
-### Signal setup
-
-Signal requires [signal-cli-rest-api](https://github.com/bbernhard/signal-cli-rest-api) running separately:
-
-```bash
-# Run signal-cli-rest-api (Docker)
-docker run -p 8080:8080 -v $(pwd)/signal-cli-config:/home/.local/share/signal-cli bbernhard/signal-cli-rest-api
-
-# Register your number (one-time)
-curl -X POST "http://localhost:8080/v2/register/+1234567890"
-
-# Verify with code sent via SMS
-curl -X POST "http://localhost:8080/v2/register/+1234567890/verify/CODE"
-```
-
-Then set `SIGNAL_CLI_URL=http://localhost:8080` and `SIGNAL_NUMBER=+1234567890` in `.env`.
+| Env var | Description |
+|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Required. Get from [@BotFather](https://t.me/BotFather) |
+| `TELEGRAM_ALLOWED_USER_ID` | Optional. When set, only this user can chat with the bot (owner-only mode). Get your ID from session filenames in `sessions/` (e.g. `telegram_1798343888.jsonl` → `1798343888`). |
 
 ---
 
@@ -269,10 +251,7 @@ custom-agent/
 ├── gateway/
 │   ├── types.go           # IncomingMessage, Gateway interface
 │   ├── sender.go          # SenderRegistry for reminders/wallet notifications
-│   ├── telegram.go
-│   ├── discord.go
-│   ├── http.go
-│   └── signal.go
+│   └── telegram.go
 ├── tools/
 │   ├── tools.go           # tool definitions + executeTool
 │   └── approvals.go       # exec approval persistence
@@ -324,3 +303,9 @@ custom-agent/
 ├── WALLET.md              # wallet tool instructions (injected when wallet enabled)
 └── README.md
 ```
+
+---
+
+## Security
+
+See [SECURITY_ASSESSMENT.md](SECURITY_ASSESSMENT.md) for gateway security changes (Telegram-only, owner restriction) and how to run security checks (`govulncheck`, `gosec`, `go vet`).
