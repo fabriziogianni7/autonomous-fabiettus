@@ -8,6 +8,7 @@ import (
 // Patterns that indicate secrets. Substring match, case-insensitive.
 var secretPatterns = []string{
 	"private_key", "privatekey", "privkey", "secret_key", "secretkey",
+	"api_key", "apikey", "bearer",
 	"mnemonic", "seed_phrase", "seedphrase", "recovery_phrase",
 	"0x[0-9a-fA-F]{64}", // 32-byte hex (private key length)
 }
@@ -24,7 +25,7 @@ var BlockedPatternsForPrompts = []string{
 var (
 	hex64Re = regexp.MustCompile(`0x[0-9a-fA-F]{64}`)
 	// Public contexts where 64-char hex is a tx hash, not a private key
-	txHashContextRe = regexp.MustCompile(`(?i)(Hash:\s*|/tx/|Explorer:.*|transaction hash[^0-9a-fA-F]*|tx hash[^0-9a-fA-F]*)0x([0-9a-fA-F]{64})`)
+	txHashContextRe   = regexp.MustCompile(`(?i)(Hash:\s*|/tx/|Explorer:.*|transaction hash[^0-9a-fA-F]*|tx hash[^0-9a-fA-F]*)0x([0-9a-fA-F]{64})`)
 	txHashPlaceholder = "«TXHASH»"
 )
 
@@ -43,7 +44,7 @@ func Redact(s string) string {
 	out = regexp.MustCompile(regexp.QuoteMeta(txHashPlaceholder)+`([0-9a-fA-F]{64})`).ReplaceAllString(out, "0x${1}")
 	// Redact common secret variable names followed by = value
 	for _, p := range secretPatterns {
-		pat := regexp.MustCompile(`(?i)`+regexp.QuoteMeta(p)+`\s*[=:]\s*[^\s]+`)
+		pat := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(p) + `\s*[=:]\s*[^\s]+`)
 		out = pat.ReplaceAllString(out, p+"=[REDACTED]")
 	}
 	return out
