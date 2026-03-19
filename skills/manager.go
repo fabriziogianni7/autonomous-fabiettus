@@ -61,6 +61,7 @@ func (m *Manager) List() ([]SkillSummary, error) {
 			continue
 		}
 		path := filepath.Join(m.dir, e.Name(), skillFileName)
+		// #nosec G304 -- path from ReadDir entries under m.dir
 		b, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -79,8 +80,18 @@ func (m *Manager) Get(name string) (Skill, error) {
 	if m.dir == "" {
 		return Skill{}, os.ErrNotExist
 	}
+	if name == "" {
+		return Skill{}, os.ErrNotExist
+	}
+	for _, c := range name {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+			continue
+		}
+		return Skill{}, os.ErrInvalid
+	}
 	// Try direct directory match first
 	skillPath := filepath.Join(m.dir, name, skillFileName)
+	// #nosec G304 -- name validated (alphanumeric, hyphen, underscore)
 	b, err := os.ReadFile(skillPath)
 	if err != nil {
 		// Try to find by scanning
@@ -93,6 +104,7 @@ func (m *Manager) Get(name string) (Skill, error) {
 				continue
 			}
 			p := filepath.Join(m.dir, e.Name(), skillFileName)
+			// #nosec G304 -- path from ReadDir entries under m.dir
 			data, err3 := os.ReadFile(p)
 			if err3 != nil {
 				continue
@@ -134,6 +146,7 @@ func (m *Manager) ReadScript(skillName, relPath string) (string, error) {
 		return "", os.ErrInvalid
 	}
 	fullPath := filepath.Join(m.dir, skillName, relPath)
+	// #nosec G304 -- relPath sanitized (no .., no abs); skillName from Get (validated)
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
 		return "", err
@@ -163,11 +176,13 @@ func (m *Manager) WriteSkill(name string, skillMd string, scripts map[string]str
 		return os.ErrInvalid
 	}
 	skillDir := filepath.Join(m.dir, name)
-	if err := os.MkdirAll(skillDir, 0755); err != nil {
+	// #nosec G301 -- 0750 restricts to owner+group
+	if err := os.MkdirAll(skillDir, 0750); err != nil {
 		return err
 	}
 	skillPath := filepath.Join(skillDir, skillFileName)
-	if err := os.WriteFile(skillPath, []byte(skillMd), 0644); err != nil {
+	// #nosec G306 -- 0600 restricts to owner
+	if err := os.WriteFile(skillPath, []byte(skillMd), 0600); err != nil {
 		return err
 	}
 	scriptsDirPath := filepath.Join(skillDir, scriptsDir)
@@ -181,10 +196,10 @@ func (m *Manager) WriteSkill(name string, skillMd string, scripts map[string]str
 			continue // skip disallowed script types
 		}
 		fullPath := filepath.Join(scriptsDirPath, relPath)
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0750); err != nil {
 			return err
 		}
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(fullPath, []byte(content), 0600); err != nil {
 			return err
 		}
 	}
