@@ -10,6 +10,49 @@ import (
 	"github.com/sashabaranov/go-openai/jsonschema"
 )
 
+func TestIsURLAllowed_BlocksPrivateIPs(t *testing.T) {
+	for _, u := range []string{
+		"http://127.0.0.1/",
+		"http://127.0.0.1:8080/",
+		"http://169.254.169.254/",
+		"http://10.0.0.1/",
+		"http://192.168.1.1/",
+		"http://172.16.0.1/",
+	} {
+		if err := isURLAllowed(u); err == nil {
+			t.Errorf("isURLAllowed(%q) should block private IP", u)
+		}
+	}
+}
+
+func TestIsURLAllowed_BlocksSchemes(t *testing.T) {
+	if err := isURLAllowed("file:///etc/passwd"); err == nil {
+		t.Error("isURLAllowed(file://) should block")
+	}
+	if err := isURLAllowed("ftp://example.com"); err == nil {
+		t.Error("isURLAllowed(ftp://) should block")
+	}
+}
+
+func TestIsURLAllowed_BlocksLocalhost(t *testing.T) {
+	// allowLoopbackForTesting is false by default
+	if err := isURLAllowed("http://localhost/"); err == nil {
+		t.Error("isURLAllowed(localhost) should block when not in test mode")
+	}
+}
+
+func TestHttpRequest_BlocksSSRF(t *testing.T) {
+	// allowLoopbackForTesting false - private URL should be rejected
+	tools := NewTools("", nil)
+	out, err := tools.httpRequest(map[string]string{"url": "http://169.254.169.254/latest/meta-data/"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "not allowed") && !strings.Contains(out, "blocked") {
+		t.Errorf("expected SSRF block, got: %s", out[:min(100, len(out))])
+	}
+}
+
 func TestHttpRequest_EmptyURL(t *testing.T) {
 	tools := NewTools("", nil)
 	out, err := tools.httpRequest(map[string]string{"url": ""}, nil)
@@ -33,6 +76,8 @@ func TestHttpRequest_InvalidURL(t *testing.T) {
 }
 
 func TestHttpRequest_WithoutX402_FreeAPI(t *testing.T) {
+	allowLoopbackForTesting = true
+	defer func() { allowLoopbackForTesting = false }()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -54,6 +99,8 @@ func TestHttpRequest_WithoutX402_FreeAPI(t *testing.T) {
 }
 
 func TestHttpRequest_HeaderRedaction(t *testing.T) {
+	allowLoopbackForTesting = true
+	defer func() { allowLoopbackForTesting = false }()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Api-Key", "secret-key-123")
 		w.Header().Set("Content-Type", "application/json")
@@ -80,6 +127,8 @@ func TestHttpRequest_HeaderRedaction(t *testing.T) {
 }
 
 func TestHttpRequest_402WithoutX402_Note(t *testing.T) {
+	allowLoopbackForTesting = true
+	defer func() { allowLoopbackForTesting = false }()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
 		w.Write([]byte(`payment required`))
@@ -100,6 +149,8 @@ func TestHttpRequest_402WithoutX402_Note(t *testing.T) {
 }
 
 func TestHttpRequest_WithHeaders(t *testing.T) {
+	allowLoopbackForTesting = true
+	defer func() { allowLoopbackForTesting = false }()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Custom") != "value" {
 			w.WriteHeader(http.StatusBadRequest)
@@ -124,6 +175,8 @@ func TestHttpRequest_WithHeaders(t *testing.T) {
 }
 
 func TestHttpRequest_ResponseTruncation(t *testing.T) {
+	allowLoopbackForTesting = true
+	defer func() { allowLoopbackForTesting = false }()
 	largeBody := make([]byte, httpRequestMaxBody+1000)
 	for i := range largeBody {
 		largeBody[i] = 'x'

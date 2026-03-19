@@ -78,6 +78,7 @@ func NewWithUpto(privateKeyHex, rpcURL, permitCapUSDC string, timeoutSec int) (*
 
 // Do sends an HTTP request. If the server responds with 402 Payment Required,
 // the client creates a payment payload and retries automatically.
+// #nosec G704 -- URL validation (isURLAllowed) is performed by tools.httpRequest before requests reach this client
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return c.Client.Do(req)
 }
