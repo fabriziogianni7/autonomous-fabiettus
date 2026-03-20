@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"strings"
@@ -63,6 +64,7 @@ func (c *Client) Embed(text string) ([]float32, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	log.Printf("[embedding] POST %s/api/embeddings | payload: %s", c.BaseURL, string(body))
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, err

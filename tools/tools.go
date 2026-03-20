@@ -1488,6 +1488,7 @@ func (t *Tools) httpRequest(args map[string]string, rawArgs map[string]interface
 	defer cancel()
 	req = req.WithContext(ctx)
 
+	log.Printf("[http_request] %s %s | body: %s", method, rawURL, redact.Redact(bodyStr))
 	resp, err := client.Do(req)
 	if err != nil {
 		return "Error: request failed: " + err.Error(), nil
@@ -1554,6 +1555,7 @@ func lifiGet(path string, params url.Values) (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), lifiTimeout)
 		defer cancel()
 		req = req.WithContext(ctx)
+		log.Printf("[lifi] GET %s", rawURL)
 		client := &http.Client{Timeout: lifiTimeout}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -1792,6 +1794,7 @@ func (t *Tools) webSearch(query string) (string, error) {
 	}
 	req.Header.Set("X-Subscription-Token", t.BraveSearchAPIKey)
 
+	log.Printf("[web_search] GET %s", u)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("search failed: %w", err)

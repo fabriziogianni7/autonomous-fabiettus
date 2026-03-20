@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -98,6 +99,7 @@ func (c *Client) jsonRPC(ctx context.Context, url, method string, params interfa
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	log.Printf("[alchemy] POST %s | method=%s | payload: %s", redactURL(url), method, string(enc))
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err

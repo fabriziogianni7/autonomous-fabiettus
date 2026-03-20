@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"log"
 	"math/big"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -36,6 +39,25 @@ import (
 
 	"github.com/sashabaranov/go-openai"
 )
+
+// loggingRoundTripper wraps a transport and logs request URL, method, and body for API debugging.
+type loggingRoundTripper struct {
+	inner http.RoundTripper
+}
+
+func (r *loggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	var bodyPreview string
+	if req.Body != nil {
+		b, _ := io.ReadAll(req.Body)
+		req.Body = io.NopCloser(bytes.NewReader(b))
+		bodyPreview = string(b)
+		if len(bodyPreview) > 2000 {
+			bodyPreview = bodyPreview[:2000] + "...[truncated]"
+		}
+	}
+	log.Printf("[llm] %s %s | body: %s", req.Method, req.URL.String(), bodyPreview)
+	return r.inner.RoundTrip(req)
+}
 
 func main() {
 	cfg, err := config.Load()
@@ -108,6 +130,9 @@ func main() {
 		}
 		llmConfig := openai.DefaultConfig(cfg.GroqAPIKey)
 		llmConfig.BaseURL = "https://api.groq.com/openai/v1"
+		llmConfig.HTTPClient = &http.Client{
+			Transport: &loggingRoundTripper{inner: http.DefaultTransport},
+		}
 		llm = openai.NewClientWithConfig(llmConfig)
 		if cfg.AutonomousMode && cfg.UseGroqLLM {
 			log.Printf("[autonomous] LLM via Groq (USE_GROQ_LLM=1 for testing)")
@@ -118,7 +143,15 @@ func main() {
 		}
 		llmConfig := openai.DefaultConfig("x402") // auth via payment, not API key
 		llmConfig.BaseURL = cfg.X402RouterURL
-		llmConfig.HTTPClient = x402Client.Client
+		baseClient := x402Client.Client
+		transport := baseClient.Transport
+		if transport == nil {
+			transport = http.DefaultTransport
+		}
+		llmConfig.HTTPClient = &http.Client{
+			Transport: &loggingRoundTripper{inner: transport},
+			Timeout:   baseClient.Timeout,
+		}
 		llm = openai.NewClientWithConfig(llmConfig)
 		log.Printf("[autonomous] LLM via x402 router %s", cfg.X402RouterURL)
 	}

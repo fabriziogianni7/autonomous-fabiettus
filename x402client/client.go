@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -93,6 +94,7 @@ type RouterStats struct {
 // Use the x402 client so the request carries session context (if the router requires it).
 func (c *Client) FetchRouterStats(ctx context.Context, baseURL string) (*RouterStats, error) {
 	url := strings.TrimSuffix(baseURL, "/") + "/stats"
+	log.Printf("[x402] GET %s", url)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
