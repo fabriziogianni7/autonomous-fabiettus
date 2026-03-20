@@ -40,14 +40,3 @@ func TestWalletGetActivity_NotConfigured(t *testing.T) {
 		t.Error("expected non-empty message")
 	}
 }
-
-func TestWalletSimulateTransaction_NotConfigured(t *testing.T) {
-	toolSet := NewTools("", nil)
-	out, err := toolSet.ExecuteTool("wallet_simulate_transaction", `{"to":"0x123","data":"0x"}`)
-	if err != nil {
-		t.Fatalf("ExecuteTool: %v", err)
-	}
-	if out == "" {
-		t.Error("expected non-empty message")
-	}
-}

@@ -32,7 +32,7 @@ import (
 )
 
 // Tool names for fallback parsing
-var toolNames = []string{"run_command", "read_file", "write_file", "web_search", "save_memory", "read_memory", "create_scheduled_reminder", "list_reminders", "delete_reminder", "spawn_subagents", "http_request", "x402_get_stats", "lifi_get_quote", "lifi_track_status", "lifi_check_route", "lifi_get_token", "wallet_get_balance", "wallet_execute_transfer", "wallet_execute_contract_call", "wallet_list_transactions", "wallet_get_portfolio", "wallet_get_portfolio_value", "wallet_get_activity", "wallet_simulate_transaction", "list_skills", "read_skill", "read_skill_script", "write_skill"}
+var toolNames = []string{"run_command", "read_file", "write_file", "web_search", "save_memory", "read_memory", "create_scheduled_reminder", "list_reminders", "delete_reminder", "spawn_subagents", "http_request", "x402_get_stats", "lifi_get_quote", "lifi_track_status", "lifi_check_route", "lifi_get_token", "wallet_get_balance", "wallet_execute_transfer", "wallet_execute_contract_call", "wallet_list_transactions", "wallet_get_portfolio", "wallet_get_portfolio_value", "wallet_get_activity", "list_skills", "read_skill", "read_skill_script", "write_skill"}
 
 // ReadOnlyToolNames are tools allowed for stateless sub-agents (no session/memory/reminder writes).
 var ReadOnlyToolNames = map[string]bool{
@@ -497,23 +497,6 @@ func Definitions() []openai.Tool {
 		{
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
-				Name:        "wallet_simulate_transaction",
-				Description: "Simulate a contract call before sending. Returns asset changes, gas estimate, revert reason. Use before wallet_execute_contract_call to check outcome.",
-				Parameters: jsonschema.Definition{
-					Type: jsonschema.Object,
-					Properties: map[string]jsonschema.Definition{
-						"chain_id":  {Type: jsonschema.Integer, Description: "Chain ID. Omit for default chain."},
-						"to":        {Type: jsonschema.String, Description: "Contract address (0x...)"},
-						"data":      {Type: jsonschema.String, Description: "Hex-encoded calldata (0x...)"},
-						"value_wei": {Type: jsonschema.String, Description: "ETH to send in wei (0 for none)"},
-					},
-					Required: []string{"to", "data"},
-				},
-			},
-		},
-		{
-			Type: openai.ToolTypeFunction,
-			Function: &openai.FunctionDefinition{
 				Name:        "list_skills",
 				Description: "List the names and short descriptions of all available skills. Use when you need to see what skills exist before deciding which to use.",
 				Parameters: jsonschema.Definition{
@@ -714,8 +697,6 @@ func (t *Tools) ExecuteTool(name, argsJSON string) (string, error) {
 		return t.walletGetPortfolioValue(strArgs, args)
 	case "wallet_get_activity":
 		return t.walletGetActivity(strArgs, args)
-	case "wallet_simulate_transaction":
-		return t.walletSimulateTransaction(strArgs, args)
 	case "list_skills":
 		return t.listSkills()
 	case "read_skill":
@@ -1065,51 +1046,6 @@ func (t *Tools) walletGetActivity(args map[string]string, rawArgs map[string]int
 			tr.Category, tr.Hash, tr.From, tr.To, tr.Value, tr.Asset, ts))
 	}
 	return strings.TrimSpace(b.String()), nil
-}
-
-func (t *Tools) walletSimulateTransaction(args map[string]string, rawArgs map[string]interface{}) (string, error) {
-	if t.Alchemy == nil || t.Wallet == nil {
-		return "Simulation requires Alchemy and wallet. Set both to enable.", nil
-	}
-	chainID := parseChainID(args, rawArgs)
-	if chainID == 0 {
-		chainID = t.Wallet.DefaultChainID()
-	}
-	to := args["to"]
-	data := args["data"]
-	valueWei := args["value_wei"]
-	if valueWei == "" {
-		valueWei = "0"
-	}
-	from := t.Wallet.WalletAddress()
-	res, err := t.Alchemy.SimulateAssetChanges(context.Background(), chainID, from, to, data, valueWei)
-	if err != nil && isRetryableSimulationError(err) {
-		log.Printf("[wallet] simulation retry after transient error: %v (to=%s chain=%d dataLen=%d)", err, to, chainID, len(data))
-		time.Sleep(3 * time.Second)
-		res, err = t.Alchemy.SimulateAssetChanges(context.Background(), chainID, from, to, data, valueWei)
-	}
-	if err != nil {
-		log.Printf("[wallet] simulation failed: to=%s chain=%d dataLen=%d err=%v", to, chainID, len(data), err)
-		return "Error: " + err.Error(), nil
-	}
-	if len(res.Changes) == 0 {
-		return "Simulation succeeded. No asset changes.", nil
-	}
-	var b strings.Builder
-	b.WriteString("Simulation succeeded. Asset changes:\n")
-	for _, c := range res.Changes {
-		b.WriteString(fmt.Sprintf("  %s %s: %s → %s raw=%s\n", c.AssetType, c.ChangeType, c.From, c.To, c.RawAmount))
-	}
-	return strings.TrimSpace(b.String()), nil
-}
-
-// isRetryableSimulationError returns true for HTTP 429 or 5xx (transient Alchemy errors).
-func isRetryableSimulationError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, "429") || strings.Contains(s, " HTTP 5")
 }
 
 func (t *Tools) listSkills() (string, error) {

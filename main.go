@@ -71,7 +71,7 @@ func main() {
 		toolInstruction += " When the wallet is configured, you can use wallet_get_balance, wallet_execute_transfer, wallet_execute_contract_call, and wallet_list_transactions. You MUST call wallet_execute_transfer or wallet_execute_contract_call to send—never claim a transaction was sent without invoking the tool. Transactions may require user approval; reply with approve: <tx_id> when prompted. With wallet enabled, http_request can automatically pay for x402-protected APIs (402 Payment Required)."
 		toolInstruction += " For LI.FI swaps, use lifi_get_quote (not http_request) to get quotes. Use lifi_track_status to track cross-chain transfers. Use lifi_check_route to verify routes exist. Use lifi_get_token to resolve token symbols. Prefer these tools over building LI.FI URLs manually."
 		if cfg.AlchemyEnabled() {
-			toolInstruction += " Use wallet_get_portfolio, wallet_get_portfolio_value, wallet_get_activity, and wallet_simulate_transaction for full holdings, USD valuation, activity history, and pre-trade simulation."
+			toolInstruction += " Use wallet_get_portfolio, wallet_get_portfolio_value, and wallet_get_activity for full holdings, USD valuation, and activity history."
 		}
 	}
 	toolInstruction += "\n"

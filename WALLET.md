@@ -19,7 +19,6 @@ You CANNOT send transactions by saying you did. You MUST call `wallet_execute_tr
 - **wallet_get_portfolio**: Full portfolio (native + ERC-20) per chain. Requires Alchemy.
 - **wallet_get_portfolio_value**: Portfolio with USD valuation. Use for runway and PnL.
 - **wallet_get_activity**: Wallet activity (deposits, withdrawals, swap fills). Requires Alchemy.
-- **wallet_simulate_transaction**: Simulate a contract call before sending. Returns asset changes and revert reason.
 
 ### Swaps, bridges, staking, lending
 

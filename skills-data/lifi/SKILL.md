@@ -59,7 +59,7 @@ Use for any "swap X for Y" or "bridge tokens to chain" request.
    - `data` = transactionRequest.data (entire hex string, do not truncate)
    - `value_wei` = decimal string (convert hex: 0x0 → "0", 0xDE0B6B3A7640000 → "1000000000000000000")
    - `chain_id` = transactionRequest.chainId (e.g. 8453 for Base). **Required** — wrong chain causes FunctionDoesNotExist.
-   - **Execute as soon as possible** after getting the quote. LI.FI quotes expire (solver orders are time-limited). If you ran simulation, quant, or approval flow first, call **lifi_get_quote** again and use the fresh transactionRequest.
+   - **Execute as soon as possible** after getting the quote. LI.FI quotes expire (solver orders are time-limited). If you ran quant or approval flow first, call **lifi_get_quote** again and use the fresh transactionRequest.
 
 8. **If cross-chain**: Explain bridging is asynchronous. Offer to track with **lifi_track_status**.
 
@@ -134,7 +134,7 @@ These rules are **mandatory** — never skip them.
 - If lifi_get_quote returns no route: use **lifi_check_route** to verify the pair. Suggest different tokens, smaller amount, or alternative chains.
 
 ### Quote Freshness
-- **LI.FI quotes expire** (solver orders are time-limited). If you ran simulation, quant, or approval flow *before* executing, call **lifi_get_quote** again immediately before `wallet_execute_contract_call` and use the fresh `transactionRequest`. Stale quotes cause `FunctionDoesNotExist` reverts.
+- **LI.FI quotes expire** (solver orders are time-limited). If you ran quant or approval flow *before* executing, call **lifi_get_quote** again immediately before `wallet_execute_contract_call` and use the fresh `transactionRequest`. Stale quotes cause `FunctionDoesNotExist` reverts.
 
 ---
 
@@ -150,7 +150,7 @@ These rules are **mandatory** — never skip them.
 | PARTIAL completion | Bridge delivered token but not final swap | User has bridged asset on destination. They can swap manually or retry. |
 | REFUNDED | Bridge failed, funds returned | Confirm refund on source chain. Suggest different bridge. |
 | Invalid address | Malformed hex address | Verify: `0x` prefix, 42 characters, valid hex. |
-| FunctionDoesNotExist | Wrong chain_id, truncated/malformed data, or **stale quote** | Pass chain_id from transactionRequest.chainId. Ensure data is complete (no truncation). Convert value from hex to decimal. **CRITICAL**: Execute immediately after lifi_get_quote—quotes expire (solvers have time-limited orders). If you simulated, waited for approval, or ran other tools first, fetch a **fresh quote** right before wallet_execute_contract_call. |
+| FunctionDoesNotExist | Wrong chain_id, truncated/malformed data, or **stale quote** | Pass chain_id from transactionRequest.chainId. Ensure data is complete (no truncation). Convert value from hex to decimal. **CRITICAL**: Execute immediately after lifi_get_quote—quotes expire (solvers have time-limited orders). If you waited for approval or ran other tools first, fetch a **fresh quote** right before wallet_execute_contract_call. |
 
 ---
 

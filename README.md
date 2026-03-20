@@ -216,7 +216,7 @@ When `ALCHEMY_API_KEY` (or `ALCHEMY_BASE_URL`, or an Alchemy `EVM_RPC_URL`) is s
 | `ALCHEMY_API_KEY` | API key from [Alchemy Dashboard](https://dashboard.alchemy.com); URLs derived per chain |
 | `ALCHEMY_BASE_URL` | Optional override; e.g. `https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY` for single chain |
 
-**Tools:** `wallet_get_portfolio`, `wallet_get_portfolio_value`, `wallet_get_activity`, `wallet_simulate_transaction`. Uses Alchemy Token API, Prices API, Transfers API, and Simulation API.
+**Tools:** `wallet_get_portfolio`, `wallet_get_portfolio_value`, `wallet_get_activity`. Uses Alchemy Token API, Prices API, and Transfers API.
 
 ---
 

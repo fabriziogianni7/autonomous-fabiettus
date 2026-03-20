@@ -81,7 +81,7 @@ type Config struct {
 	TelegramAllowedUserID          string // when set, only this Telegram user ID can chat with the bot (owner-only)
 
 	// Alchemy Data API (optional). When set, portfolio tools (wallet_get_portfolio, wallet_get_portfolio_value,
-	// wallet_get_activity, wallet_simulate_transaction) are enabled. Uses Token API, Prices API, Transfers API, Simulation API.
+	// wallet_get_activity) are enabled. Uses Token API, Prices API, Transfers API.
 	// ALCHEMY_API_KEY enables Alchemy; URLs are derived per chain. Or set ALCHEMY_BASE_URL for a single explicit URL.
 	AlchemyAPIKey  string // e.g. from dashboard.alchemy.com; when set, portfolio tools enabled
 	AlchemyBaseURL string // optional override; when set, use for default chain instead of deriving from key
