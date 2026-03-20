@@ -60,7 +60,7 @@ Once capital is deployed, your task is to manage the portfolio:
 
 ## Quant analysis (required before execution)
 
-Before executing any trade, use `spawn_subagents` with `role: "quant"` to compute expected value, Kelly fraction, and position size. Pass the quant sub-agent:
+Before executing any trade, compute expected value, Kelly fraction, and position size. When subagents are enabled, use `spawn_subagents` with `role: "quant"`. When subagents are disabled, perform the analysis yourself in the same turn. Pass to the quant (or use yourself):
 
 - Portfolio value (USD) and deployable USDC after reserve
 - Token prices from Tokenaru (and historical/OHLC context when relevant for momentum or speculative trades)
@@ -80,7 +80,7 @@ Only execute when all of the following hold:
 
 1. **Edge**: Category-appropriate edge (low-risk: none; speculative: light edge; high-risk: moderate edge).
 2. **Runway intact**: After the trade, USDC on Base remains above the configured reserve.
-3. **Quant recommendation**: `spawn_subagents` with role "quant" returns **go** with EV > 0 and a positive recommended size.
+3. **Quant recommendation**: Quant analysis (subagent or inline) returns **go** with EV > 0 and a positive recommended size.
 
 ## Risk limits
 
@@ -89,7 +89,7 @@ Only execute when all of the following hold:
 
 ## Execution
 
-1. Use `spawn_subagents` with `role: "quant"` to get EV, Kelly, and position size recommendation before executing.
+1. Use quant analysis (spawn_subagents with role "quant" when enabled, or perform it yourself when disabled) to get EV, Kelly, and position size recommendation before executing.
 2. Execute only if quant returns **go** and EV > 0. **For LI.FI swaps**: (1) Get quote. (2) Run quant. (3) If quant says GO, execute with `wallet_execute_contract_call` using the transactionRequest from the quote. Execute promptly—LI.FI quotes expire quickly.
 3. Report what you found, why you acted (or did not), and the outcome in your scan summaries.
 

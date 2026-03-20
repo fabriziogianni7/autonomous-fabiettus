@@ -56,6 +56,9 @@ func main() {
 		log.Fatalf("failed to load %s: %v", personalityPath, err)
 	}
 	toolInstruction := "\n\nYou have access to tools. Use them when they help answer the user's question—for example, read files, run commands, search the web, use memory (save_memory, read_memory), schedule reminders (create_scheduled_reminder, list_reminders, delete_reminder), spawn parallel sub-agents (spawn_subagents), or http_request for HTTP APIs. When a task can be parallelized, use spawn_subagents."
+	if cfg.DisableSubagents {
+		toolInstruction += " Subagents are disabled: when you would use spawn_subagents, perform the analysis yourself in the same turn instead."
+	}
 	if cfg.AutonomousMode {
 		toolInstruction += " Prioritize wallet and trading tools when seeking profitable opportunities. Use http_request with Tokenaru for onchain data before executing trades. Use x402_get_stats to check inference spend and runway before capital deployment."
 		minBase := cfg.X402MinBaseUSDC
@@ -256,7 +259,10 @@ func main() {
 		// Groq defaults: empty = agent's default + rotation
 		skipCompaction = true
 	}
-	a := agent.New(llm, parentModel, subagentModel, systemPrompt, cfg.CompactionThreshold, skipCompaction, toolSet, convStore, cfg.SkillsDir, modelForRole, spendStore, cfg.SubagentTimeoutSec, cfg.SubagentQuantTimeoutSec)
+	if cfg.DisableSubagents {
+		log.Printf("[agent] subagents disabled - quant analysis runs inline in main agent")
+	}
+	a := agent.New(llm, parentModel, subagentModel, systemPrompt, cfg.CompactionThreshold, skipCompaction, toolSet, convStore, cfg.SkillsDir, modelForRole, spendStore, cfg.SubagentTimeoutSec, cfg.SubagentQuantTimeoutSec, cfg.DisableSubagents)
 
 	queue := sessionqueue.New(func(msg gateway.IncomingMessage) string {
 		return a.HandleMessage(context.Background(), msg)

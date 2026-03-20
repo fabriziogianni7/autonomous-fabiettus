@@ -104,6 +104,10 @@ type Config struct {
 	// Subagent timeouts (seconds). Quant often needs longer for EV/Kelly calculations.
 	SubagentTimeoutSec      int // default 60
 	SubagentQuantTimeoutSec int // default 90; used when role=quant
+
+	// DisableSubagents: when true, spawn_subagents returns instructions to do the work inline (no subagent).
+	// Set via DISABLE_SUBAGENTS=1 or true. Makes quant analysis sequential in the main agent.
+	DisableSubagents bool
 }
 
 // Load reads environment variables from .env (if present) and validates required values.
@@ -148,6 +152,7 @@ func Load() (*Config, error) {
 		X402ModelSubagent:              strings.TrimSpace(os.Getenv("X402_MODEL_SUBAGENT")),
 		SubagentTimeoutSec:             parseInt(os.Getenv("SUBAGENT_TIMEOUT_SEC"), 60),
 		SubagentQuantTimeoutSec:        parseInt(os.Getenv("SUBAGENT_QUANT_TIMEOUT_SEC"), 90),
+		DisableSubagents:               parseBool(os.Getenv("DISABLE_SUBAGENTS")),
 	}
 	cfg.DataRoot = strings.TrimSpace(os.Getenv("RAILWAY_VOLUME_MOUNT_PATH"))
 	if cfg.DataRoot == "" {

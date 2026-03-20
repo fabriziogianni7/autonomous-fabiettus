@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"regexp"
 	"strings"
@@ -49,6 +50,7 @@ type Agent struct {
 	subagentModelForRole    func(role string) string // optional; when set and role non-empty, overrides subagentModel
 	subagentTimeoutSec      int                      // default 60; used for non-quant subagents
 	subagentQuantTimeoutSec int                      // default 90; used when role=quant
+	disableSubagents        bool                     // when true, spawn_subagents returns "do it yourself" (no subagent)
 	systemPrompt            string
 	compactor               *compaction.Compactor
 	skipCompaction          bool // when true, bypass compaction (e.g. autonomous mode)
@@ -68,7 +70,8 @@ type Agent struct {
 // skillsDir: optional path to skills directory; when set, skill descriptions are injected into system prompt.
 // modelForRole: optional; when non-nil and spawn_subagents uses role, returns model for that role (autonomous mode).
 // subagentTimeoutSec, subagentQuantTimeoutSec: timeouts for subagents; 0 = use package defaults (60, 90).
-func New(client *openai.Client, parentModel string, subagentModel string, systemPrompt string, tokenThreshold int, skipCompaction bool, toolSet *tools.Tools, convStore *conversation.Store, skillsDir string, modelForRole func(role string) string, spendStore *spend.Store, subagentTimeoutSec, subagentQuantTimeoutSec int) *Agent {
+// disableSubagents: when true, spawn_subagents returns instructions to do the work inline (no subagent).
+func New(client *openai.Client, parentModel string, subagentModel string, systemPrompt string, tokenThreshold int, skipCompaction bool, toolSet *tools.Tools, convStore *conversation.Store, skillsDir string, modelForRole func(role string) string, spendStore *spend.Store, subagentTimeoutSec, subagentQuantTimeoutSec int, disableSubagents bool) *Agent {
 	if parentModel == "" {
 		parentModel = agentParentModel
 	}
@@ -91,6 +94,7 @@ func New(client *openai.Client, parentModel string, subagentModel string, system
 		subagentModelForRole:    modelForRole,
 		subagentTimeoutSec:      subTimeout,
 		subagentQuantTimeoutSec: quantTimeout,
+		disableSubagents:        disableSubagents,
 		systemPrompt:            systemPrompt,
 		compactor:               compaction.NewCompactor(client, parentModel, tokenThreshold, spendStore),
 		skipCompaction:          skipCompaction,
@@ -430,6 +434,7 @@ func (a *Agent) buildSkillsDescriptionBlock() string {
 }
 
 // handleSpawnSubagents parses spawn_subagents args, runs sub-agents concurrently, and returns formatted results.
+// When disableSubagents is true, returns instructions for the main agent to perform the analysis inline.
 func (a *Agent) handleSpawnSubagents(ctx context.Context, argsJSON string, msg gateway.IncomingMessage) string {
 	var args struct {
 		Tasks []string `json:"tasks"`
@@ -440,6 +445,21 @@ func (a *Agent) handleSpawnSubagents(ctx context.Context, argsJSON string, msg g
 	}
 	if len(args.Tasks) == 0 {
 		return "Error: tasks cannot be empty."
+	}
+	if a.disableSubagents {
+		var b strings.Builder
+		b.WriteString("Subagents are disabled. Perform the analysis yourself in this turn.\n\n")
+		b.WriteString("Tasks:\n")
+		for i, t := range args.Tasks {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				b.WriteString(fmt.Sprintf("%d. %s\n", i+1, t))
+			}
+		}
+		b.WriteString("\nUse the formulas in STRATEGY.md (EV, Kelly, position size). ")
+		b.WriteString("Return: EV, Kelly fraction, recommended size USD, and go/no-go with one-line reasoning. ")
+		b.WriteString("Then proceed to execute or skip based on your conclusion.")
+		return b.String()
 	}
 	specs := make([]SubtaskSpec, len(args.Tasks))
 	for i, t := range args.Tasks {

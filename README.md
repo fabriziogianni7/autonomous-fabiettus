@@ -194,6 +194,7 @@ When `AUTONOMOUS_MODE=1`, the agent pays for its own LLM inference via x402 inst
 | `X402_MIN_BASE_USDC` | Minimum USDC to keep on Base for inference (default `10`). Agent must not trade below this. |
 | `X402_LLM_TIMEOUT` | HTTP timeout for LLM requests in seconds (default `120`). Increase if ai.xgate.run often times out. |
 | `X402_MODEL_QUANT`, `X402_MODEL_PARSER`, `X402_MODEL_RESEARCH`, `X402_MODEL_RISK`, `X402_MODEL_SUBAGENT` | Optional. Role-specific models for `spawn_subagents` (quant, parser, research, risk). Saves cost: use cheap models for parser/research. |
+| `DISABLE_SUBAGENTS` | When set (1 or true), quant analysis runs inline in the main agent instead of spawning a subagent. Use when quant subagent often returns N/A. |
 | `OPPORTUNITY_SCAN_INTERVAL_MINUTES` | Cron interval (default 0 = disabled; set e.g. 15 to enable) |
 | `TELEGRAM_OWNER_CHAT_ID` | Chat ID to receive scan output and approvals (routed via existing bot; required when interval > 0) |
 
