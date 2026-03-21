@@ -22,7 +22,7 @@ You CANNOT send transactions by saying you did. You MUST call `wallet_execute_tr
 
 ### Swaps, bridges, staking, lending
 
-For swaps, bridges, staking, lending, and other DeFi operations, use the **lifi** skill. Read it with `read_skill` (name: `lifi`). The LI.FI protocol aggregates quotes across 35+ chains and DEXes; you get `transactionRequest` objects (to, data, value) that you pass to `wallet_execute_contract_call`. Use lifi for: USDC → ETH/BTC swaps, cross-chain bridges, staking, lending, and other DeFi actions.
+For swaps, bridges, staking, lending, and other DeFi operations, use the **lifi** skill. Read it with `read_skill` (name: `lifi`). The LI.FI protocol aggregates quotes across 35+ chains and DEXes; you get `transactionRequest` objects (to, data, value) that you pass to `wallet_execute_contract_call`. Use lifi for: **any token pair** on supported routes (e.g. USDC → ETH/BTC, ETH → USDC, ETH → alts, WBTC → ETH), cross-chain bridges, staking, lending, and other DeFi actions.
 
 ### Multichain
 

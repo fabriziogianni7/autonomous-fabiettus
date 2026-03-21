@@ -27,6 +27,7 @@ If no arguments are provided, ask the user what they want to do.
 ## Key Concepts
 
 - **Native token address**: `0x0000000000000000000000000000000000000000` (for ETH, MATIC, BNB, etc.)
+- **Any portfolio asset as `from_token`**: Swaps are not limited to USDC → token. You can use **ETH, WBTC, or any held ERC-20** as the source (`from_token`) on Base (8453): e.g. ETH → USDC (trim/reserve), ETH → alt, WBTC → ETH (rebalance), USDC → WETH (deploy). Always resolve addresses/decimals with **lifi_get_token** and verify routes with **lifi_check_route**.
 - **Amounts** are always in the token's **smallest unit** (wei): 1 ETH = 10^18, 1 USDC = 10^6
 - Use **lifi_get_token** to resolve symbol → address and decimals before quoting
 - The tools return `transactionRequest` objects. For wallet_execute_contract_call you MUST pass:
@@ -41,7 +42,7 @@ If no arguments are provided, ask the user what they want to do.
 
 Use for any "swap X for Y" or "bridge tokens to chain" request.
 
-1. **Identify parameters** from the user's request: source chain/token, destination chain/token, amount, wallet (or omit for agent wallet).
+1. **Identify parameters** from the user's request: source chain/token, destination chain/token, amount, wallet (or omit for agent wallet). For autonomous trading, the source token is often **USDC** but may be **ETH, WBTC, or another holding**—use `wallet_get_portfolio_value` to pick the `from_token` and size the swap (see STRATEGY.md deployable capital).
 
 2. **Resolve token addresses** if the user gave symbols: call **lifi_get_token** with chain and token symbol. Extract `address` and `decimals` from the response.
 
@@ -59,7 +60,7 @@ Use for any "swap X for Y" or "bridge tokens to chain" request.
    - `data` = transactionRequest.data (entire hex string, do not truncate)
    - `value_wei` = decimal string (convert hex: 0x0 → "0", 0xDE0B6B3A7640000 → "1000000000000000000")
    - `chain_id` = transactionRequest.chainId (e.g. 8453 for Base). **Required** — wrong chain causes FunctionDoesNotExist.
-   - **Execute as soon as possible** after getting the quote. LI.FI quotes expire (solver orders are time-limited). If you ran quant or approval flow first, call **lifi_get_quote** again and use the fresh transactionRequest.
+   - **Execute as soon as possible** after getting the quote. LI.FI quotes expire (solver orders are time-limited). If you ran **`strategy_factor_analysis`**, quant, or approval flow first, call **lifi_get_quote** again immediately before execution and use the **fresh** transactionRequest. **Never** execute a stale quote after delays.
 
 8. **If cross-chain**: Explain bridging is asynchronous. Offer to track with **lifi_track_status**.
 

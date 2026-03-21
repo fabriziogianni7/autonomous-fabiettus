@@ -168,6 +168,10 @@ Successful responses may include a `summary` field (1–2 sentence LLM summary) 
 - Built-in chaining (e.g. address → price) without orchestrating multiple calls.
 - Cached address lookups reduce latency.
 
+## Agent behavior: multifactor tool
+
+After fetching historical/OHLC responses, pass the JSON bodies into **`strategy_factor_analysis`** as `series_json` (map key → JSON). Include **bitcoin** and **ethereum** keys for benchmark-relative factors. See STRATEGY.md.
+
 ## Agent behavior: when to fetch historical and OHLC
 
 Before evaluating trades, base analysis on data—not just spot prices:

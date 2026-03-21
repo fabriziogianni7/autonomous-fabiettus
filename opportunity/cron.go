@@ -11,7 +11,7 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-const scanPrompt = `Scan for opportunities. Follow STRATEGY.md: Market analysis → Quant analysis → Execution. Report what you found and did.`
+const scanPrompt = `Scan for opportunities. Follow STRATEGY.md: Market analysis (wallet + Tokenaru + strategy_factor_analysis for discretionary) → Quant analysis → Execution. Report what you found and did.`
 
 // Runner periodically invokes the agent to scan for opportunities.
 type Runner struct {
