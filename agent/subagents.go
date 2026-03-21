@@ -120,9 +120,14 @@ func (a *Agent) runOneSubagent(ctx context.Context, spec SubtaskSpec, msg gatewa
 	subCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	systemPrompt := a.systemPrompt + "\n\n" + subagentRoleInstruction
-	if spec.Role != "" {
-		systemPrompt += "\n\nRole: " + spec.Role
+	var systemPrompt string
+	if isFailureAnalyzerRole(spec.Role) {
+		systemPrompt = failureAnalyzerSystemPrompt
+	} else {
+		systemPrompt = a.systemPrompt + "\n\n" + subagentRoleInstruction
+		if spec.Role != "" {
+			systemPrompt += "\n\nRole: " + spec.Role
+		}
 	}
 
 	messages := []openai.ChatCompletionMessage{
@@ -203,6 +208,7 @@ func (a *Agent) runOneSubagent(ctx context.Context, spec SubtaskSpec, msg gatewa
 					}
 				}
 				if !tools.IsAllowedForSubagent(tc.Function.Name) {
+					a.recordSubagentDenied(msg, tc.Function.Name, args, spec.Role, spec.Index)
 					messages = append(messages, openai.ChatCompletionMessage{
 						Role:       openai.ChatMessageRoleTool,
 						Content:    "Error: sub-agents cannot use this tool.",
@@ -213,6 +219,9 @@ func (a *Agent) runOneSubagent(ctx context.Context, spec SubtaskSpec, msg gatewa
 				result, err := a.tools.ExecuteTool(tc.Function.Name, args)
 				if err != nil {
 					result = "Error: " + err.Error()
+				}
+				if err != nil || isErrorResult(result) {
+					a.recordToolOutcome(msg, "subagent", tc.Function.Name, args, 1, err, result, newCorrelationID(), spec.Role, spec.Index)
 				}
 				messages = append(messages, openai.ChatCompletionMessage{
 					Role:       openai.ChatMessageRoleTool,
@@ -234,6 +243,7 @@ func (a *Agent) runOneSubagent(ctx context.Context, spec SubtaskSpec, msg gatewa
 				}
 			}
 			if !tools.IsAllowedForSubagent(toolName) {
+				a.recordSubagentDenied(msg, toolName, toolArgs, spec.Role, spec.Index)
 				messages = append(messages, openai.ChatCompletionMessage{
 					Role:       openai.ChatMessageRoleTool,
 					Content:    "Error: sub-agents cannot use this tool.",
@@ -244,6 +254,9 @@ func (a *Agent) runOneSubagent(ctx context.Context, spec SubtaskSpec, msg gatewa
 				result, err := a.tools.ExecuteTool(toolName, toolArgs)
 				if err != nil {
 					result = "Error: " + err.Error()
+				}
+				if err != nil || isErrorResult(result) {
+					a.recordToolOutcome(msg, "subagent", toolName, toolArgs, 1, err, result, newCorrelationID(), spec.Role, spec.Index)
 				}
 				messages = append(messages, openai.ChatCompletionMessage{
 					Role:       openai.ChatMessageRoleTool,

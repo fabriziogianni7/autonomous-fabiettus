@@ -679,6 +679,7 @@ func DefinitionsForSubagent() []openai.Tool {
 
 // ExecuteTool runs the named tool with the given JSON arguments and returns the result.
 // For save_memory and read_memory, platform and userID must be injected by the caller via InjectMemoryArgs.
+// Structured failure logging (with session context and retries) is handled in the agent layer (runMainAgentTool, subagents, spawn_subagents).
 func (t *Tools) ExecuteTool(name, argsJSON string) (string, error) {
 	var args map[string]interface{}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {

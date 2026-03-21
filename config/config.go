@@ -108,6 +108,11 @@ type Config struct {
 	// DisableSubagents: when true, spawn_subagents returns instructions to do the work inline (no subagent).
 	// Set via DISABLE_SUBAGENTS=1 or true. Makes quant analysis sequential in the main agent.
 	DisableSubagents bool
+
+	// FailureAnalyzerEnabled: FAILURE_ANALYZER=1 runs one failure-analyzer subagent after non-terminal tool failures.
+	FailureAnalyzerEnabled bool
+	// X402ModelAnalyzer: optional model for role failure-analyzer (autonomous x402).
+	X402ModelAnalyzer string
 }
 
 // Load reads environment variables from .env (if present) and validates required values.
@@ -153,6 +158,8 @@ func Load() (*Config, error) {
 		SubagentTimeoutSec:             parseInt(os.Getenv("SUBAGENT_TIMEOUT_SEC"), 60),
 		SubagentQuantTimeoutSec:        parseInt(os.Getenv("SUBAGENT_QUANT_TIMEOUT_SEC"), 90),
 		DisableSubagents:               parseBool(os.Getenv("DISABLE_SUBAGENTS")),
+		FailureAnalyzerEnabled:         parseBool(os.Getenv("FAILURE_ANALYZER")),
+		X402ModelAnalyzer:              strings.TrimSpace(os.Getenv("X402_MODEL_ANALYZER")),
 	}
 	cfg.DataRoot = strings.TrimSpace(os.Getenv("RAILWAY_VOLUME_MOUNT_PATH"))
 	if cfg.DataRoot == "" {
@@ -289,7 +296,7 @@ func hasBaseChain(c *Config) bool {
 }
 
 // ModelForRole returns the x402 model for the given spawn_subagents role.
-// Role is matched case-insensitively: quant, parser, research, risk.
+// Role is matched case-insensitively: quant, parser, research, risk, failure-analyzer (or analyzer).
 // Empty role or unknown role returns fallback (X402ModelSubagent if set, else X402Model).
 func (c *Config) ModelForRole(role string) string {
 	fallback := c.X402ModelSubagent
@@ -316,6 +323,10 @@ func (c *Config) ModelForRole(role string) string {
 	case "risk":
 		if c.X402ModelRisk != "" {
 			return c.X402ModelRisk
+		}
+	case "failure-analyzer", "analyzer":
+		if c.X402ModelAnalyzer != "" {
+			return c.X402ModelAnalyzer
 		}
 	}
 	return fallback
