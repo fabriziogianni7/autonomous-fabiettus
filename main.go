@@ -28,6 +28,7 @@ import (
 	"custom-agent/sessionqueue"
 	"custom-agent/skills"
 	"custom-agent/spend"
+	"custom-agent/toolfailure"
 	"custom-agent/tools"
 	"custom-agent/wallet"
 	"custom-agent/wallet/approval"
@@ -77,6 +78,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to load %s: %v", personalityPath, err)
 	}
+	commonIssuesBlock := loadCommonIssuesPromptBlock(dataRoot)
 	toolInstruction := "\n\nYou have access to tools. Use them when they help answer the user's question—for example, read files, run commands, search the web, use memory (save_memory, read_memory), schedule reminders (create_scheduled_reminder, list_reminders, delete_reminder), spawn parallel sub-agents (spawn_subagents), or http_request for HTTP APIs. When a task can be parallelized, use spawn_subagents."
 	if cfg.DisableSubagents {
 		toolInstruction += " Subagents are disabled: when you would use spawn_subagents, perform the analysis yourself in the same turn instead."
@@ -202,6 +204,10 @@ func main() {
 	if cfg.AutonomousMode {
 		toolSet.SetSpendStore(spendStore)
 	}
+	failureStore := toolfailure.NewStore(filepath.Join(dataRoot, "tool-failures"))
+	if cfg.FailureAnalyzerEnabled {
+		log.Printf("[failure-learning] FAILURE_ANALYZER enabled; logs under %s", filepath.Join(dataRoot, "tool-failures"))
+	}
 	senderRegistry := gateway.NewSenderRegistry()
 
 	// Build gateways and register Senders (for reminders and wallet approval notifications)
@@ -261,8 +267,8 @@ func main() {
 		}
 	}
 
-	// Build system prompt: personality + tools, then append WALLET.md when wallet is enabled
-	systemPrompt := strings.TrimSpace(string(personality)) + toolInstruction
+	// Build system prompt: personality + optional COMMON_ISSUES + tools, then append WALLET.md when wallet is enabled
+	systemPrompt := strings.TrimSpace(string(personality)) + commonIssuesBlock + toolInstruction
 	if cfg.AutonomousMode {
 		strategy, err := os.ReadFile("STRATEGY.md")
 		if err != nil {
@@ -295,7 +301,7 @@ func main() {
 	if cfg.DisableSubagents {
 		log.Printf("[agent] subagents disabled - quant analysis runs inline in main agent")
 	}
-	a := agent.New(llm, parentModel, subagentModel, systemPrompt, cfg.CompactionThreshold, skipCompaction, toolSet, convStore, cfg.SkillsDir, modelForRole, spendStore, cfg.SubagentTimeoutSec, cfg.SubagentQuantTimeoutSec, cfg.DisableSubagents)
+	a := agent.New(llm, parentModel, subagentModel, systemPrompt, cfg.CompactionThreshold, skipCompaction, toolSet, convStore, cfg.SkillsDir, modelForRole, spendStore, cfg.SubagentTimeoutSec, cfg.SubagentQuantTimeoutSec, cfg.DisableSubagents, failureStore, dataRoot, cfg.FailureAnalyzerEnabled)
 
 	queue := sessionqueue.New(func(msg gateway.IncomingMessage) string {
 		return a.HandleMessage(context.Background(), msg)
@@ -352,6 +358,30 @@ func alchemyConfig(cfg *config.Config, chainRegistry *chains.Registry) alchemy.C
 		c.ChainURLs = chainRegistry.ChainURLs("alchemy.com")
 	}
 	return c
+}
+
+// loadCommonIssuesPromptBlock loads COMMON_ISSUES.md from DataRoot or repo root, capped for prompt size.
+func loadCommonIssuesPromptBlock(dataRoot string) string {
+	const maxLen = 2048
+	paths := []string{
+		filepath.Join(dataRoot, "COMMON_ISSUES.md"),
+		"COMMON_ISSUES.md",
+	}
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil || len(b) == 0 {
+			continue
+		}
+		s := strings.TrimSpace(string(b))
+		if s == "" {
+			continue
+		}
+		if len(s) > maxLen {
+			s = s[:maxLen] + "\n\n... (COMMON_ISSUES truncated)"
+		}
+		return "\n\n--- Learned tool notes (COMMON_ISSUES) ---\n" + s + "\n--- End COMMON_ISSUES ---\n"
+	}
+	return ""
 }
 
 // logX402Stats periodically fetches /v1/stats and logs total_spent_usd, total_tokens, and remaining budget.

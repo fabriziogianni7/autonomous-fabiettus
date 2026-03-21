@@ -17,6 +17,7 @@ import (
 	"custom-agent/session"
 	"custom-agent/skills"
 	"custom-agent/spend"
+	"custom-agent/toolfailure"
 	"custom-agent/tools"
 	"custom-agent/wallet/redact"
 
@@ -60,6 +61,9 @@ type Agent struct {
 	skillsDir               string
 	skillsMgr               *skills.Manager
 	spendStore              *spend.Store
+	failureStore            *toolfailure.Store
+	dataRoot                string
+	failureAnalyzerEnabled  bool
 }
 
 // New creates an Agent with the given LLM client, system prompt, tools, and optional stores.
@@ -71,7 +75,8 @@ type Agent struct {
 // modelForRole: optional; when non-nil and spawn_subagents uses role, returns model for that role (autonomous mode).
 // subagentTimeoutSec, subagentQuantTimeoutSec: timeouts for subagents; 0 = use package defaults (60, 90).
 // disableSubagents: when true, spawn_subagents returns instructions to do the work inline (no subagent).
-func New(client *openai.Client, parentModel string, subagentModel string, systemPrompt string, tokenThreshold int, skipCompaction bool, toolSet *tools.Tools, convStore *conversation.Store, skillsDir string, modelForRole func(role string) string, spendStore *spend.Store, subagentTimeoutSec, subagentQuantTimeoutSec int, disableSubagents bool) *Agent {
+// failureStore: optional JSONL tool-failure log under DataRoot; dataRoot used for COMMON_ISSUES.md; failureAnalyzer enables one analyzer pass per message when FAILURE_ANALYZER=1.
+func New(client *openai.Client, parentModel string, subagentModel string, systemPrompt string, tokenThreshold int, skipCompaction bool, toolSet *tools.Tools, convStore *conversation.Store, skillsDir string, modelForRole func(role string) string, spendStore *spend.Store, subagentTimeoutSec, subagentQuantTimeoutSec int, disableSubagents bool, failureStore *toolfailure.Store, dataRoot string, failureAnalyzerEnabled bool) *Agent {
 	if parentModel == "" {
 		parentModel = agentParentModel
 	}
@@ -104,6 +109,9 @@ func New(client *openai.Client, parentModel string, subagentModel string, system
 		skillsDir:               skillsDir,
 		skillsMgr:               skillsMgr,
 		spendStore:              spendStore,
+		failureStore:            failureStore,
+		dataRoot:                dataRoot,
+		failureAnalyzerEnabled:  failureAnalyzerEnabled,
 	}
 }
 
@@ -243,6 +251,7 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 	toolDefs := tools.Definitions()
 	mustExecuteWallet := a.tools.Wallet != nil && wantsWalletSend(text)
 	walletToolUsed := false
+	failureAnalyzerUsed := false
 
 	for i := 0; i < maxToolRounds; i++ {
 		sendMessages := messages
@@ -279,6 +288,7 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 		// Execute tool calls (structured)
 		if len(msgResp.ToolCalls) > 0 {
 			messages = append(messages, msgResp)
+			var postToolHints []string
 			for _, tc := range msgResp.ToolCalls {
 				if tc.Function.Name == "wallet_execute_transfer" || tc.Function.Name == "wallet_execute_contract_call" {
 					walletToolUsed = true
@@ -303,16 +313,27 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 							args = injected
 						}
 					}
-					var err error
-					result, err = a.tools.ExecuteTool(tc.Function.Name, args)
-					if err != nil {
-						result = "Error: " + err.Error()
+					var execErr error
+					var corrID string
+					result, execErr, corrID, _ = a.runMainAgentTool(msg, tc.Function.Name, args)
+					failed := execErr != nil || isErrorResult(result)
+					if failed && a.failureAnalyzerEnabled && !failureAnalyzerUsed && !a.disableSubagents && shouldRunFailureAnalyzer(tc.Function.Name, execErr, result) {
+						if hint := a.runFailureAnalyzer(ctx, msg, tc.Function.Name, args, execErr, result, corrID); hint != "" {
+							postToolHints = append(postToolHints, hint)
+						}
+						failureAnalyzerUsed = true
 					}
 				}
 				messages = append(messages, openai.ChatCompletionMessage{
 					Role:       openai.ChatMessageRoleTool,
 					Content:    result,
 					ToolCallID: tc.ID,
+				})
+			}
+			for _, h := range postToolHints {
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: h,
 				})
 			}
 			continue
@@ -328,6 +349,7 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 				walletToolUsed = true
 			}
 			var result string
+			var postFallbackHints []string
 			if toolName == "spawn_subagents" {
 				result = a.handleSpawnSubagents(ctx, toolArgs, msg)
 			} else {
@@ -346,10 +368,15 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 						toolArgs = injected
 					}
 				}
-				var err error
-				result, err = a.tools.ExecuteTool(toolName, toolArgs)
-				if err != nil {
-					result = "Error: " + err.Error()
+				var execErr error
+				var corrID string
+				result, execErr, corrID, _ = a.runMainAgentTool(msg, toolName, toolArgs)
+				failed := execErr != nil || isErrorResult(result)
+				if failed && a.failureAnalyzerEnabled && !failureAnalyzerUsed && !a.disableSubagents && shouldRunFailureAnalyzer(toolName, execErr, result) {
+					if hint := a.runFailureAnalyzer(ctx, msg, toolName, toolArgs, execErr, result, corrID); hint != "" {
+						postFallbackHints = append(postFallbackHints, hint)
+					}
+					failureAnalyzerUsed = true
 				}
 			}
 			messages = append(messages, openai.ChatCompletionMessage{
@@ -358,6 +385,12 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 				ToolCallID: "fallback",
 				Name:       toolName,
 			})
+			for _, h := range postFallbackHints {
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: h,
+				})
+			}
 			continue
 		}
 
@@ -441,9 +474,11 @@ func (a *Agent) handleSpawnSubagents(ctx context.Context, argsJSON string, msg g
 		Role  string   `json:"role"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		a.recordSpawnSubagentsFailure(msg, err.Error())
 		return "Error: invalid spawn_subagents arguments: " + err.Error()
 	}
 	if len(args.Tasks) == 0 {
+		a.recordSpawnSubagentsFailure(msg, "tasks cannot be empty")
 		return "Error: tasks cannot be empty."
 	}
 	if a.disableSubagents {
@@ -480,6 +515,7 @@ func (a *Agent) handleSpawnSubagents(ctx context.Context, argsJSON string, msg g
 	}
 	specs = specs[:n]
 	if len(specs) == 0 {
+		a.recordSpawnSubagentsFailure(msg, "no valid tasks provided")
 		return "Error: no valid tasks provided."
 	}
 	role := strings.ToLower(strings.TrimSpace(args.Role))
@@ -490,14 +526,32 @@ func (a *Agent) handleSpawnSubagents(ctx context.Context, argsJSON string, msg g
 	opts := &SubagentOpts{PerChildTimeout: time.Duration(timeoutSec) * time.Second}
 	results, err := a.RunSubagents(ctx, specs, msg, opts)
 	if err != nil {
+		a.recordSpawnSubagentsFailure(msg, err.Error())
 		return "Error running sub-agents: " + err.Error()
 	}
-	// Retry once on quant timeout (subagent returned Err)
+	quantCorrID := newCorrelationID()
+	// Retry once on quant timeout (subagent returned Err); log first wave for observability.
 	if role == "quant" && hasSubagentError(results) {
+		if a.failureStore != nil {
+			a.recordFailure(toolfailure.Entry{
+				CorrelationID: quantCorrID,
+				Tool:          "spawn_subagents",
+				Kind:          toolfailure.KindErrorResult,
+				Message:       "quant subagent errors before retry",
+				Platform:      msg.Platform,
+				UserID:        msg.UserID,
+				ChatID:        msg.ChatID,
+				Source:        "spawn_subagents",
+			})
+		}
 		log.Printf("[agent] quant subagent timeout/error, retrying once")
 		results, err = a.RunSubagents(ctx, specs, msg, opts)
 		if err != nil {
+			a.recordSpawnSubagentsFailure(msg, err.Error())
 			return "Error running sub-agents: " + err.Error()
+		}
+		if !hasSubagentError(results) {
+			a.recordRecovery(quantCorrID, "spawn_subagents", "spawn_subagents", "quant subagents succeeded after retry", msg)
 		}
 	}
 	return FormatSubagentResults(results)

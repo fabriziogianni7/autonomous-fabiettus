@@ -270,6 +270,7 @@ func TestModelForRole(t *testing.T) {
 		X402ModelResearch: "openai:gpt-5-mini",
 		X402ModelRisk:     "openai:gpt-5",
 		X402ModelSubagent: "openai:gpt-5-mini",
+		X402ModelAnalyzer: "openai:gpt-5-analyzer",
 	}
 
 	if got := cfg.ModelForRole("quant"); got != "openai:gpt-5" {
@@ -283,6 +284,12 @@ func TestModelForRole(t *testing.T) {
 	}
 	if got := cfg.ModelForRole("risk"); got != "openai:gpt-5" {
 		t.Errorf("ModelForRole(risk) = %q, want openai:gpt-5", got)
+	}
+	if got := cfg.ModelForRole("failure-analyzer"); got != "openai:gpt-5-analyzer" {
+		t.Errorf("ModelForRole(failure-analyzer) = %q, want openai:gpt-5-analyzer", got)
+	}
+	if got := cfg.ModelForRole("analyzer"); got != "openai:gpt-5-analyzer" {
+		t.Errorf("ModelForRole(analyzer) = %q, want openai:gpt-5-analyzer", got)
 	}
 	if got := cfg.ModelForRole("QUANT"); got != "openai:gpt-5" {
 		t.Errorf("ModelForRole(QUANT) = %q, want openai:gpt-5 (case-insensitive)", got)
