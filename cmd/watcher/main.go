@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -35,6 +36,7 @@ func main() {
 	}
 	walletAddr := strings.TrimSpace(os.Getenv("WATCHER_WALLET_ADDRESS"))
 	signingKey := strings.TrimSpace(os.Getenv("ALCHEMY_WEBHOOK_SIGNING_KEY"))
+	minValue := parseMinValue(os.Getenv("WATCHER_MIN_VALUE"))
 	skillsDir := strings.TrimSpace(os.Getenv("SKILLS_DIR"))
 	if skillsDir == "" {
 		skillsDir = "./skills-data"
@@ -51,7 +53,7 @@ func main() {
 	notifier := wallet.NewSenderNotifier(senderRegistry)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /webhooks/alchemy", webhook.Handler(activityStore, notifier, groupChatID, walletAddr, signingKey))
+	mux.HandleFunc("POST /webhooks/alchemy", webhook.Handler(activityStore, notifier, groupChatID, walletAddr, signingKey, minValue))
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -139,4 +141,18 @@ func loadSystemPrompt(skillsDir string) string {
 	}
 
 	return sb.String()
+}
+
+// parseMinValue parses WATCHER_MIN_VALUE. Default 0.5 (ignore < 0.50 USDC).
+// Set to 0 to disable filtering. Example: WATCHER_MIN_VALUE=0.001 filters ETH dust.
+func parseMinValue(s string) float64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0.5
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || v < 0 {
+		return 0
+	}
+	return v
 }

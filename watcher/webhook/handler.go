@@ -74,7 +74,8 @@ func explorerURL(network, hash string) string {
 
 // Handler returns an HTTP handler for Alchemy webhooks.
 // signingKey: from Alchemy dashboard (webhook detail page). If empty, signature validation is skipped.
-func Handler(store *activity.Store, notifier Notifier, groupChatID, walletAddress, signingKey string) http.HandlerFunc {
+// minValue: if > 0, activities with value < minValue are ignored (filters microtransactions).
+func Handler(store *activity.Store, notifier Notifier, groupChatID, walletAddress, signingKey string, minValue float64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -110,6 +111,9 @@ func Handler(store *activity.Store, notifier Notifier, groupChatID, walletAddres
 			from := strings.ToLower(a.FromAddress)
 			to := strings.ToLower(a.ToAddress)
 			if walletAddr != "" && from != walletAddr && to != walletAddr {
+				continue
+			}
+			if minValue > 0 && a.Value < minValue {
 				continue
 			}
 			e := &activity.Entry{
