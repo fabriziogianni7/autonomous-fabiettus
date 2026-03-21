@@ -19,14 +19,20 @@ import (
 type TelegramGateway struct {
 	token         string
 	allowedUserID string // when set, only messages from this user are processed
+	groupChatID   string // when set, only messages from this chat (group) are processed
 	bot           *tgbotapi.BotAPI
 	mu            sync.RWMutex
 }
 
 // NewTelegram creates a Telegram gateway. Token must be non-empty.
 // allowedUserID: when non-empty, only messages from this Telegram user ID are processed (owner-only mode).
-func NewTelegram(token string, allowedUserID string) *TelegramGateway {
-	return &TelegramGateway{token: token, allowedUserID: strings.TrimSpace(allowedUserID)}
+// groupChatID: when non-empty, only messages from this chat ID are processed (group-only mode). Pass "" for Fabiettus.
+func NewTelegram(token string, allowedUserID string, groupChatID string) *TelegramGateway {
+	return &TelegramGateway{
+		token:         token,
+		allowedUserID: strings.TrimSpace(allowedUserID),
+		groupChatID:   strings.TrimSpace(groupChatID),
+	}
 }
 
 // convertMarkdownBoldToHTML converts **bold** to <b>bold</b> for Telegram HTML parse mode.
@@ -82,7 +88,11 @@ func (g *TelegramGateway) Run(ctx context.Context, handler Handler) error {
 			}
 
 			msg := update.Message
+			chatIDStr := fmt.Sprintf("%d", msg.Chat.ID)
 			userIDStr := fmt.Sprintf("%d", msg.From.ID)
+			if g.groupChatID != "" && chatIDStr != g.groupChatID {
+				continue // group-only mode: ignore messages from other chats
+			}
 			if g.allowedUserID != "" && userIDStr != g.allowedUserID {
 				log.Printf("[telegram] ignored message from user %s (not allowed)", userIDStr)
 				continue
@@ -92,7 +102,7 @@ func (g *TelegramGateway) Run(ctx context.Context, handler Handler) error {
 			incoming := IncomingMessage{
 				Platform:  "telegram",
 				UserID:    userIDStr,
-				ChatID:    fmt.Sprintf("%d", msg.Chat.ID),
+				ChatID:    chatIDStr,
 				Text:      msg.Text,
 				ReplyToID: fmt.Sprintf("%d", msg.MessageID),
 			}

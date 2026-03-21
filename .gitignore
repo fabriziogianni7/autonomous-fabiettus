@@ -1,5 +1,8 @@
 # Binaries
 custom-agent
+fabiettus
+watcher-bin
+watcher/watcher
 *.exe
 
 # Environment
