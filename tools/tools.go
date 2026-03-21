@@ -24,6 +24,7 @@ import (
 	"custom-agent/reminders"
 	"custom-agent/skills"
 	"custom-agent/spend"
+	"custom-agent/strategy"
 	"custom-agent/wallet/redact"
 	"custom-agent/x402client"
 
@@ -32,7 +33,7 @@ import (
 )
 
 // Tool names for fallback parsing
-var toolNames = []string{"run_command", "read_file", "write_file", "web_search", "save_memory", "read_memory", "create_scheduled_reminder", "list_reminders", "delete_reminder", "spawn_subagents", "http_request", "x402_get_stats", "lifi_get_quote", "lifi_track_status", "lifi_check_route", "lifi_get_token", "wallet_get_balance", "wallet_execute_transfer", "wallet_execute_contract_call", "wallet_list_transactions", "wallet_get_portfolio", "wallet_get_portfolio_value", "wallet_get_activity", "list_skills", "read_skill", "read_skill_script", "write_skill"}
+var toolNames = []string{"run_command", "read_file", "write_file", "web_search", "save_memory", "read_memory", "create_scheduled_reminder", "list_reminders", "delete_reminder", "spawn_subagents", "http_request", "x402_get_stats", "strategy_factor_analysis", "lifi_get_quote", "lifi_track_status", "lifi_check_route", "lifi_get_token", "wallet_get_balance", "wallet_execute_transfer", "wallet_execute_contract_call", "wallet_list_transactions", "wallet_get_portfolio", "wallet_get_portfolio_value", "wallet_get_activity", "list_skills", "read_skill", "read_skill_script", "write_skill"}
 
 // ReadOnlyToolNames are tools allowed for stateless sub-agents (no session/memory/reminder writes).
 var ReadOnlyToolNames = map[string]bool{
@@ -51,6 +52,7 @@ var ReadOnlyToolNames = map[string]bool{
 	"list_skills":                true,
 	"read_skill":                 true,
 	"read_skill_script":          true,
+	"strategy_factor_analysis":   true,
 }
 
 // WalletService is the interface for policy-gated wallet operations. Optional.
@@ -353,7 +355,7 @@ func Definitions() []openai.Tool {
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "spawn_subagents",
-				Description: "Delegate independent subtasks to concurrent sub-agents. Use when a request can be parallelized (e.g. research multiple topics, compare several options, gather info from different angles). Each subtask runs in parallel. Sub-agents can use read_file, web_search, read_memory. Pass 2-5 focused tasks for best results.",
+				Description: "Delegate independent subtasks to concurrent sub-agents. Use when a request can be parallelized (e.g. research multiple topics, compare several options, gather info from different angles). Each subtask runs in parallel. Sub-agents can use read_file, web_search, read_memory, http_request, strategy_factor_analysis, wallet_get_portfolio_value, and other read-only tools. Pass 2-5 focused tasks for best results.",
 				Parameters: jsonschema.Definition{
 					Type: jsonschema.Object,
 					Properties: map[string]jsonschema.Definition{
@@ -389,6 +391,38 @@ func Definitions() []openai.Tool {
 				Parameters: jsonschema.Definition{
 					Type:       jsonschema.Object,
 					Properties: map[string]jsonschema.Definition{},
+				},
+			},
+		},
+		{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name:        "strategy_factor_analysis",
+				Description: "Deterministic multifactor + EV/Kelly from historical price JSON. Pass Tokenaru (or CoinGecko-shaped) responses per asset. REQUIRED: series_json object mapping keys (e.g. bitcoin, ethereum, SOL, WBTC) to each asset's JSON body from http_request. Always include bitcoin AND ethereum series for benchmark-relative factors. Optional: portfolio_symbols, target_symbol, portfolio_value_usd, deployable_usdc_above_reserve_usd, source_asset, source_asset_value_usd, trade_type (buy_with_usdc|swap_asset|rebalance_asset|reserve_recovery|bootstrap|other), risk_tier (bluechip|speculative). Uses bounded concurrency per asset. Returns factors, signal_score, p_win, payoff/loss estimates, EV, Kelly, recommended_size_usd, go per asset.",
+				Parameters: jsonschema.Definition{
+					Type: jsonschema.Object,
+					Properties: map[string]jsonschema.Definition{
+						"series_json": jsonschema.Definition{
+							Type:        jsonschema.Object,
+							Description: "Map of symbol/query key to Tokenaru JSON (full response body or inner data with prices/OHLC). Must include bitcoin and ethereum for benchmarks.",
+						},
+						"portfolio_symbols": jsonschema.Definition{
+							Type:        jsonschema.Array,
+							Description: "Symbols to analyze (keys must match series_json).",
+							Items:       &jsonschema.Definition{Type: jsonschema.String},
+						},
+						"target_symbol":                     jsonschema.Definition{Type: jsonschema.String, Description: "Primary trade candidate key (must exist in series_json)."},
+						"portfolio_value_usd":               jsonschema.Definition{Type: jsonschema.Number, Description: "Total portfolio USD."},
+						"deployable_usdc_above_reserve_usd": jsonschema.Definition{Type: jsonschema.Number, Description: "USDC on Base available after inference reserve."},
+						"source_asset":                      jsonschema.Definition{Type: jsonschema.String, Description: "For swap_asset/rebalance: asset being sold (e.g. ETH)."},
+						"source_asset_value_usd":            jsonschema.Definition{Type: jsonschema.Number, Description: "USD value of source_asset for sizing when trade_type is swap/rebalance."},
+						"trade_type": jsonschema.Definition{
+							Type:        jsonschema.String,
+							Description: "buy_with_usdc | swap_asset | rebalance_asset | reserve_recovery | bootstrap | other",
+						},
+						"risk_tier": jsonschema.Definition{Type: jsonschema.String, Description: "bluechip (half-Kelly caps) or speculative (quarter-Kelly caps)."},
+					},
+					Required: []string{"series_json"},
 				},
 			},
 		},
@@ -683,6 +717,8 @@ func (t *Tools) ExecuteTool(name, argsJSON string) (string, error) {
 		return t.lifiGetToken(strArgs)
 	case "x402_get_stats":
 		return t.x402GetStats()
+	case "strategy_factor_analysis":
+		return t.strategyFactorAnalysis(strArgs, args)
 	case "wallet_get_balance":
 		return t.walletGetBalance(strArgs, args)
 	case "wallet_execute_transfer":
@@ -1676,6 +1712,127 @@ func (t *Tools) lifiGetToken(args map[string]string) (string, error) {
 	params.Set("chain", chain)
 	params.Set("token", token)
 	return lifiGet("/token", params)
+}
+
+func parseSeriesJSONField(v interface{}) (map[string]json.RawMessage, error) {
+	if v == nil {
+		return nil, fmt.Errorf("missing series_json")
+	}
+	switch t := v.(type) {
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return nil, fmt.Errorf("empty series_json string")
+		}
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(s), &m); err != nil {
+			return nil, err
+		}
+		return m, nil
+	case map[string]interface{}:
+		out := make(map[string]json.RawMessage)
+		for k, val := range t {
+			b, err := json.Marshal(val)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", k, err)
+			}
+			out[k] = json.RawMessage(b)
+		}
+		if len(out) == 0 {
+			return nil, fmt.Errorf("empty series_json object")
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("series_json must be a JSON object or string of JSON object")
+	}
+}
+
+func stringFromArgInterface(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	switch s := v.(type) {
+	case string:
+		return strings.TrimSpace(s)
+	default:
+		return strings.TrimSpace(fmt.Sprint(s))
+	}
+}
+
+func floatFromArgInterface(v interface{}) float64 {
+	if v == nil {
+		return 0
+	}
+	switch n := v.(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	case string:
+		f, _ := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		return f
+	default:
+		return 0
+	}
+}
+
+func stringSliceFromArgInterface(v interface{}) []string {
+	if v == nil {
+		return nil
+	}
+	arr, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, e := range arr {
+		out = append(out, stringFromArgInterface(e))
+	}
+	return out
+}
+
+// strategyFactorAnalysis runs deterministic multifactor EV/Kelly from Tokenaru-shaped JSON (read-only).
+func (t *Tools) strategyFactorAnalysis(strArgs map[string]string, rawArgs map[string]interface{}) (string, error) {
+	_ = strArgs
+	if rawArgs == nil {
+		return "Error: missing arguments for strategy_factor_analysis.", nil
+	}
+	series, err := parseSeriesJSONField(rawArgs["series_json"])
+	if err != nil {
+		return "Error: " + err.Error(), nil
+	}
+	req := strategy.AnalyzeRequest{
+		SeriesJSON:                    series,
+		PortfolioSymbols:              stringSliceFromArgInterface(rawArgs["portfolio_symbols"]),
+		TargetSymbol:                  stringFromArgInterface(rawArgs["target_symbol"]),
+		PortfolioValueUSD:             floatFromArgInterface(rawArgs["portfolio_value_usd"]),
+		DeployableUSDCAboveReserveUSD: floatFromArgInterface(rawArgs["deployable_usdc_above_reserve_usd"]),
+		SourceAsset:                   stringFromArgInterface(rawArgs["source_asset"]),
+		SourceAssetValueUSD:           floatFromArgInterface(rawArgs["source_asset_value_usd"]),
+		TradeType:                     stringFromArgInterface(rawArgs["trade_type"]),
+		RiskTier:                      stringFromArgInterface(rawArgs["risk_tier"]),
+	}
+	if req.RiskTier == "" {
+		req.RiskTier = "speculative"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	resp, err := strategy.Analyze(ctx, req)
+	if err != nil {
+		return "Error: " + err.Error(), nil
+	}
+	out, err := json.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 func (t *Tools) x402GetStats() (string, error) {

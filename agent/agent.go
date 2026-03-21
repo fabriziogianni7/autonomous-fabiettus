@@ -456,7 +456,8 @@ func (a *Agent) handleSpawnSubagents(ctx context.Context, argsJSON string, msg g
 				b.WriteString(fmt.Sprintf("%d. %s\n", i+1, t))
 			}
 		}
-		b.WriteString("\nUse the formulas in STRATEGY.md (EV, Kelly, position size). ")
+		b.WriteString("\nUse STRATEGY.md: if you have `strategy_factor_analysis` output, treat it as the baseline for p, EV, Kelly, and size; align quant with that JSON. ")
+		b.WriteString("Use the formulas in STRATEGY.md (EV, Kelly, position size, deployable base by trade_type). ")
 		b.WriteString("Return: EV, Kelly fraction, recommended size USD, and go/no-go with one-line reasoning. ")
 		b.WriteString("Then proceed to execute or skip based on your conclusion.")
 		return b.String()
