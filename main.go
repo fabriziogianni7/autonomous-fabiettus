@@ -217,7 +217,7 @@ func main() {
 	}
 	var starters []gwStarter
 	if cfg.TelegramBotToken != "" {
-		tg := gateway.NewTelegram(cfg.TelegramBotToken, cfg.TelegramAllowedUserID)
+		tg := gateway.NewTelegram(cfg.TelegramBotToken, cfg.TelegramAllowedUserID, "")
 		senderRegistry.Register("telegram", tg)
 		starters = append(starters, gwStarter{"telegram", tg})
 	}
