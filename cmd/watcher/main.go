@@ -55,6 +55,15 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.Error(w, `404 - Not found. Alchemy webhook URL: POST /webhooks/alchemy`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("watcher ok. Alchemy webhook: POST /webhooks/alchemy"))
+	})
 
 	systemPrompt := loadSystemPrompt(skillsDir)
 	llmConfig := openai.DefaultConfig(groqKey)
