@@ -90,6 +90,7 @@ func (g *TelegramGateway) Run(ctx context.Context, handler Handler) error {
 			msg := update.Message
 			chatIDStr := fmt.Sprintf("%d", msg.Chat.ID)
 			userIDStr := fmt.Sprintf("%d", msg.From.ID)
+			log.Printf("[telegram] message from chat=%s user=%s (@%s): %s", chatIDStr, userIDStr, msg.From.UserName, redact.Redact(msg.Text))
 			if g.groupChatID != "" && chatIDStr != g.groupChatID {
 				continue // group-only mode: ignore messages from other chats
 			}
@@ -97,7 +98,6 @@ func (g *TelegramGateway) Run(ctx context.Context, handler Handler) error {
 				log.Printf("[telegram] ignored message from user %s (not allowed)", userIDStr)
 				continue
 			}
-			log.Printf("[telegram] [%s] %s", msg.From.UserName, redact.Redact(msg.Text))
 
 			incoming := IncomingMessage{
 				Platform:  "telegram",
