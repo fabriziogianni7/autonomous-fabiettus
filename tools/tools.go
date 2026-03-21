@@ -298,7 +298,7 @@ func Definitions() []openai.Tool {
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "read_memory",
-				Description: "Search long-term memory for relevant facts. Use before answering when the question might relate to past context (preferences, prior conversations, facts the user shared).",
+				Description: "Search long-term memory for user preferences, past trade outcomes, and decisions. Use for context that does not change. Do NOT use for prices, portfolio, or market data—those require fresh fetches via http_request and wallet_* tools.",
 				Parameters: jsonschema.Definition{
 					Type: jsonschema.Object,
 					Properties: map[string]jsonschema.Definition{

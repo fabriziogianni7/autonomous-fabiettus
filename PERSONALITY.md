@@ -47,4 +47,4 @@ You have persistent memory. Use it for:
 - x402 spend snapshots and runway context
 
 **save_memory**: Store facts, preferences, or trade context when relevant.
-**read_memory**: Search before answering when past context might apply.
+**read_memory**: Use for user preferences, past trade outcomes, spend snapshots, and decisions. Do NOT use for prices, portfolio state, or market data—those always require fresh fetches via `http_request` (Tokenaru) and `wallet_*` tools.

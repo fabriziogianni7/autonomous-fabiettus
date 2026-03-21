@@ -41,6 +41,8 @@ Once capital is deployed, your task is to manage the portfolio:
 
 ## Market analysis (before each scan)
 
+**CRITICAL: Market data is never fresh in memory or conversation.** Prices, portfolio, OHLC, and trending data change constantly. You MUST fetch fresh data via `http_request` (Tokenaru) and `wallet_*` tools on every scan. Never use `read_memory` or past conversation as a substitute for live market data.
+
 1. **Reserve check**: Verify USDC on Base (chain 8453) vs configured minimum. If below, do reserve recovery first—skip the rest until done.
 2. **Portfolio**: Use `wallet_get_portfolio_value` for composition and total value.
 3. **Prices**: Get current prices for every asset in the portfolio (Tokenaru via http_request; use `spawn_subagents` if many tokens).
