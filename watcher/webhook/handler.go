@@ -2,14 +2,30 @@ package webhook
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
 
 	"custom-agent/watcher/activity"
 )
+
+// isValidSignature verifies X-Alchemy-Signature per Alchemy docs:
+// HMAC SHA-256(signingKey, rawBody) == header value.
+func isValidSignature(body []byte, signature, signingKey string) bool {
+	if signingKey == "" {
+		return true
+	}
+	h := hmac.New(sha256.New, []byte(signingKey))
+	h.Write(body)
+	digest := hex.EncodeToString(h.Sum(nil))
+	return hmac.Equal([]byte(digest), []byte(signature))
+}
 
 // Notifier sends messages to the group. Implemented by wallet.SenderNotifier.
 type Notifier interface {
@@ -57,14 +73,30 @@ func explorerURL(network, hash string) string {
 }
 
 // Handler returns an HTTP handler for Alchemy webhooks.
-func Handler(store *activity.Store, notifier Notifier, groupChatID, walletAddress string) http.HandlerFunc {
+// signingKey: from Alchemy dashboard (webhook detail page). If empty, signature validation is skipped.
+func Handler(store *activity.Store, notifier Notifier, groupChatID, walletAddress, signingKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			log.Printf("[webhook] read body: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		r.Body.Close()
+
+		signature := r.Header.Get("x-alchemy-signature")
+		if !isValidSignature(body, signature, signingKey) {
+			log.Printf("[webhook] signature validation failed")
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
 		var evt AlchemyEvent
-		if err := json.NewDecoder(r.Body).Decode(&evt); err != nil {
+		if err := json.Unmarshal(body, &evt); err != nil {
 			log.Printf("[webhook] decode error: %v", err)
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return

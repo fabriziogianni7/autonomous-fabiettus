@@ -34,6 +34,7 @@ func main() {
 		port = "8080"
 	}
 	walletAddr := strings.TrimSpace(os.Getenv("WATCHER_WALLET_ADDRESS"))
+	signingKey := strings.TrimSpace(os.Getenv("ALCHEMY_WEBHOOK_SIGNING_KEY"))
 	skillsDir := strings.TrimSpace(os.Getenv("SKILLS_DIR"))
 	if skillsDir == "" {
 		skillsDir = "./skills-data"
@@ -50,7 +51,7 @@ func main() {
 	notifier := wallet.NewSenderNotifier(senderRegistry)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /webhooks/alchemy", webhook.Handler(activityStore, notifier, groupChatID, walletAddr))
+	mux.HandleFunc("POST /webhooks/alchemy", webhook.Handler(activityStore, notifier, groupChatID, walletAddr, signingKey))
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
