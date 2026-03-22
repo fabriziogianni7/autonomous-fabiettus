@@ -31,14 +31,12 @@ const (
 
 // subagentModels are rotated per sub-agent index to spread load across Groq's per-model TPM quotas.
 var subagentModels = []string{
-	"llama-3.1-8b-instant",
-	"meta-llama/llama-prompt-guard-2-86m",
-	"meta-llama/llama-prompt-guard-2-86m",
+	"openai/gpt-oss-120b",
 }
 
 func subagentModelForIndex(idx int) string {
 	if len(subagentModels) == 0 {
-		return "llama-3.1-8b-instant"
+		return "openai/gpt-oss-120b"
 	}
 	return subagentModels[idx%len(subagentModels)]
 }
