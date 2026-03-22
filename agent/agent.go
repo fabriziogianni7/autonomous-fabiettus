@@ -26,7 +26,7 @@ import (
 
 const (
 	agentParentModel = "moonshotai/kimi-k2-instruct-0905" // default when parentModel not specified
-	maxToolRounds    = 20
+	maxToolRounds    = 100
 )
 
 // subagentModels are rotated per sub-agent index to spread load across Groq's per-model TPM quotas.
