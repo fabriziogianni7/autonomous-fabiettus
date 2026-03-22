@@ -119,7 +119,7 @@ The bot can use tools when the LLM decides they're helpful:
 | `read_skill_script` | Read a script file within a skill |
 | `write_skill` | Persist a new skill (after security/feasibility checks) |
 
-The agent loop runs until the LLM returns a final text response or hits the tool limit (10 rounds). Add or modify tools in `tools/tools.go`.
+The agent loop runs until the LLM returns a final text response or hits the tool limit (20 rounds). Add or modify tools in `tools/tools.go`.
 
 ---
 

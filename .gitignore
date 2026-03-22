@@ -5,7 +5,7 @@ watcher-bin
 watcher/watcher
 *.exe
 
-# Environment
+# Environmentßß
 .env
 exec-approvals.json
 
@@ -27,3 +27,7 @@ wallet-approvals/
 wallet-history/
 .cursor/*
 .DS_Store
+docs/SYNTHESIS.md
+docs/VIDEO_SCRIPT.md
+scripts/conversation-log.md
+scripts/synthesis-submit.sh
