@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	agentParentModel = "moonshotai/kimi-k2-instruct-0905" // default when parentModel not specified
+	agentParentModel = "openai/gpt-oss-120b" // default when parentModel not specified
 	maxToolRounds    = 100
 )
 
