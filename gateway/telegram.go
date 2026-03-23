@@ -15,6 +15,9 @@ import (
 	"custom-agent/wallet/redact"
 )
 
+// telegramMaxMessageLen is Telegram's limit; split longer messages into chunks.
+const telegramMaxMessageLen = 4090
+
 // TelegramGateway implements Gateway and Sender for Telegram.
 type TelegramGateway struct {
 	token         string
@@ -35,6 +38,23 @@ func NewTelegram(token string, allowedUserID string, groupChatID string) *Telegr
 	}
 }
 
+// splitForTelegram splits text into chunks of at most telegramMaxMessageLen runes.
+func splitForTelegram(text string) []string {
+	runes := []rune(text)
+	if len(runes) <= telegramMaxMessageLen {
+		return []string{text}
+	}
+	var out []string
+	for i := 0; i < len(runes); i += telegramMaxMessageLen {
+		end := i + telegramMaxMessageLen
+		if end > len(runes) {
+			end = len(runes)
+		}
+		out = append(out, string(runes[i:end]))
+	}
+	return out
+}
+
 // convertMarkdownBoldToHTML converts **bold** to <b>bold</b> for Telegram HTML parse mode.
 // Escapes HTML entities in content so Telegram renders correctly.
 func convertMarkdownBoldToHTML(s string) string {
@@ -43,6 +63,7 @@ func convertMarkdownBoldToHTML(s string) string {
 }
 
 // Send delivers an outbound message to the chat. Implements Sender.
+// Splits text into chunks if it exceeds Telegram's message length limit.
 func (g *TelegramGateway) Send(ctx context.Context, platform, userID, chatID, text string) error {
 	g.mu.RLock()
 	bot := g.bot
@@ -54,10 +75,15 @@ func (g *TelegramGateway) Send(ctx context.Context, platform, userID, chatID, te
 	if err != nil {
 		return fmt.Errorf("telegram: invalid chat_id %q: %w", chatID, err)
 	}
-	msg := tgbotapi.NewMessage(cid, convertMarkdownBoldToHTML(text))
-	msg.ParseMode = "HTML"
-	_, err = bot.Send(msg)
-	return err
+	chunks := splitForTelegram(text)
+	for _, chunk := range chunks {
+		msg := tgbotapi.NewMessage(cid, convertMarkdownBoldToHTML(chunk))
+		msg.ParseMode = "HTML"
+		if _, err := bot.Send(msg); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Run starts the Telegram bot and processes messages until ctx is cancelled.
@@ -109,11 +135,17 @@ func (g *TelegramGateway) Run(ctx context.Context, handler Handler) error {
 
 			reply := handler(incoming)
 
-			response := tgbotapi.NewMessage(msg.Chat.ID, convertMarkdownBoldToHTML(reply))
-			response.ParseMode = "HTML"
-			response.ReplyToMessageID = msg.MessageID
-			if _, err := bot.Send(response); err != nil {
-				log.Printf("[telegram] send error: %v", err)
+			chunks := splitForTelegram(reply)
+			for i, chunk := range chunks {
+				resp := tgbotapi.NewMessage(msg.Chat.ID, convertMarkdownBoldToHTML(chunk))
+				resp.ParseMode = "HTML"
+				if i == 0 {
+					resp.ReplyToMessageID = msg.MessageID
+				}
+				if _, err := bot.Send(resp); err != nil {
+					log.Printf("[telegram] send error: %v", err)
+					break
+				}
 			}
 		}
 	}

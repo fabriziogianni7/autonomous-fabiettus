@@ -250,8 +250,11 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 	mustExecuteWallet := a.tools.Wallet != nil && wantsWalletSend(text)
 	walletToolUsed := false
 	failureAnalyzerUsed := false
+	toolRoundsUsed := 0
+	toolInvocations := 0
 
 	for i := 0; i < maxToolRounds; i++ {
+		toolRoundsUsed = i + 1
 		req := a.buildMainAgentChatCompletionRequest(messages, toolDefs)
 		resp, err := createChatCompletionWithRetry(ctx, a.client, req)
 		if err != nil {
@@ -271,12 +274,14 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 		msgResp := resp.Choices[0].Message
 
 		if len(msgResp.ToolCalls) > 0 {
+			toolInvocations += len(msgResp.ToolCalls)
 			messages = append(messages, msgResp)
 			messages = append(messages, a.structuredToolRoundMessages(ctx, msg, msgResp.ToolCalls, &failureAnalyzerUsed, &walletToolUsed)...)
 			continue
 		}
 
 		if toolName, toolArgs, ok := tools.ParseToolCallFromContent(msgResp.Content); ok {
+			toolInvocations++
 			messages = append(messages, openai.ChatCompletionMessage{
 				Role:    openai.ChatMessageRoleAssistant,
 				Content: msgResp.Content,
@@ -303,9 +308,11 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 			_ = a.convStore.Add(msg.Platform, msg.UserID, "user", text)
 			_ = a.convStore.Add(msg.Platform, msg.UserID, "assistant", reply)
 		}
+		log.Printf("[agent] tool_counters: rounds=%d invocations=%d", toolRoundsUsed, toolInvocations)
 		return reply
 	}
 
+	log.Printf("[agent] tool_limit_hit: rounds=%d invocations=%d", toolRoundsUsed, toolInvocations)
 	return "I hit the tool limit. Please try a simpler request."
 }
 
