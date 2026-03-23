@@ -1823,12 +1823,36 @@ func (t *Tools) strategyFactorAnalysis(strArgs map[string]string, rawArgs map[st
 	if req.RiskTier == "" {
 		req.RiskTier = "speculative"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+
+	// Log input data
+	symbols := make([]string, 0, len(series))
+	for k := range series {
+		symbols = append(symbols, k)
+	}
+	log.Printf("[strategy_factor_analysis] input: symbols=%v trade_type=%s risk_tier=%s portfolio_usd=%.2f deployable_usdc=%.2f source=%s source_usd=%.2f target=%s",
+		symbols, req.TradeType, req.RiskTier, req.PortfolioValueUSD, req.DeployableUSDCAboveReserveUSD, req.SourceAsset, req.SourceAssetValueUSD, req.TargetSymbol)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	resp, err := strategy.Analyze(ctx, req)
 	if err != nil {
 		return "Error: " + err.Error(), nil
 	}
+
+	// Log result
+	var benchLines []string
+	for sym, f := range resp.Benchmarks {
+		benchLines = append(benchLines, fmt.Sprintf("%s(mom7d=%.3f,mom14d=%.3f)", sym, f.Momentum7d, f.Momentum14d))
+	}
+	log.Printf("[strategy_factor_analysis] benchmarks: %s deployable_base=%.2f", strings.Join(benchLines, " "), resp.DeployableBaseUSD)
+	for _, a := range resp.Assets {
+		log.Printf("[strategy_factor_analysis] asset %s: go=%v ev=%.4f kelly=%.4f size=%.2f | %s",
+			a.Symbol, a.Go, a.EV, a.KellyFractionUsed, a.RecommendedSizeUSD, a.Reason)
+	}
+	if resp.Notes != "" {
+		log.Printf("[strategy_factor_analysis] notes: %s", resp.Notes)
+	}
+
 	out, err := json.MarshalIndent(resp, "", "  ")
 	if err != nil {
 		return "", err
