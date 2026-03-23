@@ -355,7 +355,7 @@ func Definitions() []openai.Tool {
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "spawn_subagents",
-				Description: "Delegate independent subtasks to concurrent sub-agents. Use when a request can be parallelized (e.g. research multiple topics, compare several options, gather info from different angles). Each subtask runs in parallel. Sub-agents can use read_file, web_search, read_memory, http_request, strategy_factor_analysis, wallet_get_portfolio_value, and other read-only tools. Pass 2-5 focused tasks for best results.",
+				Description: "Delegate independent subtasks to concurrent sub-agents. Use when a request can be parallelized (e.g. research multiple topics, compare several options, gather info from different angles). Each subtask runs in parallel. Sub-agents can use read_file, web_search, read_memory, http_request, strategy_factor_analysis, wallet_get_portfolio_value, and other read-only tools. Pass 2-5 focused tasks for best results. Synthesize subagent results before spawning again—do not spawn redundant or overlapping tasks.",
 				Parameters: jsonschema.Definition{
 					Type: jsonschema.Object,
 					Properties: map[string]jsonschema.Definition{
@@ -387,7 +387,7 @@ func Definitions() []openai.Tool {
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "x402_get_stats",
-				Description: "Get x402 router session stats: total_spent_usd, total_tokens, permit_cap, remaining_usd. Use at start of opportunity scans and before capital deployment to check inference cost runway. Requires autonomous mode with x402 router.",
+				Description: "Get x402 router session stats: total_spent_usd, total_tokens. Use at start of opportunity scans and before capital deployment to check inference spend. Requires autonomous mode with x402 router.",
 				Parameters: jsonschema.Definition{
 					Type:       jsonschema.Object,
 					Properties: map[string]jsonschema.Definition{},
@@ -1876,17 +1876,8 @@ func (t *Tools) x402GetStats() (string, error) {
 	if err != nil {
 		return "Error: " + err.Error(), nil
 	}
-	capUSD := 0.0
-	if t.X402PermitCap != "" {
-		capUSD, _ = strconv.ParseFloat(t.X402PermitCap, 64)
-	}
-	spentUSD, _ := strconv.ParseFloat(stats.TotalSpentUSD, 64)
-	remaining := capUSD - spentUSD
-	if remaining < 0 {
-		remaining = 0
-	}
-	return fmt.Sprintf("total_spent_usd=%s total_tokens=%d permit_cap_usd=%s remaining_usd≈%.2f",
-		stats.TotalSpentUSD, stats.TotalTokens, t.X402PermitCap, remaining), nil
+	return fmt.Sprintf("total_spent_usd=%s total_tokens=%d",
+		stats.TotalSpentUSD, stats.TotalTokens), nil
 }
 
 func runCommand(command string) (string, error) {

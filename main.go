@@ -314,7 +314,7 @@ func main() {
 
 	// Log x402 router spend stats periodically (autonomous mode only)
 	if cfg.AutonomousMode && x402Client != nil {
-		go logX402Stats(ctx, x402Client, cfg.X402RouterURL, cfg.X402PermitCap)
+		go logX402Stats(ctx, x402Client, cfg.X402RouterURL)
 	}
 
 	sig := make(chan os.Signal, 1)
@@ -363,23 +363,16 @@ func loadCommonIssuesPromptBlock(dataRoot string) string {
 	return ""
 }
 
-// logX402Stats periodically fetches /v1/stats and logs total_spent_usd, total_tokens, and remaining budget.
-func logX402Stats(ctx context.Context, client *x402client.Client, routerURL, permitCap string) {
-	capUSD, _ := strconv.ParseFloat(permitCap, 64)
+// logX402Stats periodically fetches /v1/stats and logs total_spent_usd and total_tokens.
+func logX402Stats(ctx context.Context, client *x402client.Client, routerURL string) {
 	logOnce := func() {
 		stats, err := client.FetchRouterStats(ctx, routerURL)
 		if err != nil {
 			log.Printf("[x402] stats: %v", err)
 			return
 		}
-		spentUSD, _ := strconv.ParseFloat(stats.TotalSpentUSD, 64)
-		remaining := capUSD - spentUSD
-		if remaining < 0 {
-			remaining = 0
-		}
-		// #nosec G706 -- stats from x402 API response; numeric/controlled fields
-		log.Printf("[x402] stats: total_spent_usd=%s total_tokens=%d remaining_usd≈%.2f",
-			stats.TotalSpentUSD, stats.TotalTokens, remaining)
+		log.Printf("[x402] stats: total_spent_usd=%s total_tokens=%d",
+			stats.TotalSpentUSD, stats.TotalTokens)
 	}
 	logOnce() // first run immediately
 	ticker := time.NewTicker(5 * time.Minute)

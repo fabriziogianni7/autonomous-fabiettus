@@ -20,7 +20,8 @@ const (
 	defaultPerChildTimeout  = 60 * time.Second
 	defaultMaxChildCount    = 10
 	subagentMaxToolRounds   = 5
-	subagentRoleInstruction = "You are a focused sub-agent. Answer only the given task. Use read_file, web_search, and read_memory as needed. Do not save memory or schedule reminders."
+	subagentRoleInstruction = "You are a focused sub-agent. Answer only the given task. Use read_file, web_search, read_memory, and http_request as needed. Do not save memory or schedule reminders."
+	tokenaruResearchBlock   = "\n\n**Tokenaru API** (for prices, trending, OHLC): Use http_request with GET https://tokenaru.vercel.app/api/lookup?q=<query>. Examples: q=bitcoin, q=ethereum price, q=SOL price, q=trending base. Do NOT web_search for the API endpoint—use this URL directly."
 )
 
 // SubtaskSpec describes a single stateless child task.
@@ -127,6 +128,9 @@ func (a *Agent) runOneSubagent(ctx context.Context, spec SubtaskSpec, msg gatewa
 		systemPrompt = a.systemPrompt + "\n\n" + subagentRoleInstruction
 		if spec.Role != "" {
 			systemPrompt += "\n\nRole: " + spec.Role
+		}
+		if spec.Role == "research" {
+			systemPrompt += tokenaruResearchBlock
 		}
 	}
 

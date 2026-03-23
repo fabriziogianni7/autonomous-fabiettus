@@ -26,7 +26,7 @@ import (
 
 const (
 	agentParentModel = "openai/gpt-oss-120b" // default when parentModel not specified
-	maxToolRounds    = 20
+	maxToolRounds    = 30
 )
 
 // subagentModels are rotated per sub-agent index to spread load across Groq's per-model TPM quotas.
