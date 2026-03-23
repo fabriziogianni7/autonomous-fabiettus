@@ -6,6 +6,34 @@ import (
 	"testing"
 )
 
+func TestSanitizeToolCallArguments(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"already valid", `{"asset":"SOL"}`, `{"asset":"SOL"}`},
+		{"markdown fences", "```json\n{\"asset\":\"SOL\"}\n```", `{"asset":"SOL"}`},
+		{"fences no lang", "```\n{\"asset\":\"SOL\"}\n```", `{"asset":"SOL"}`},
+		{"trailing comma object", `{"asset":"SOL",}`, `{"asset":"SOL"}`},
+		{"trailing comma array", `{"symbols":["SOL","ETH",]}`, `{"symbols":["SOL","ETH"]}`},
+		{"nested trailing", `{"a":1,"b":[1,2,],}`, `{"a":1,"b":[1,2]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SanitizeToolCallArguments(tt.in)
+			if got != tt.want {
+				t.Errorf("got %q want %q", got, tt.want)
+			}
+			// Sanitized output should parse as JSON
+			var m map[string]interface{}
+			if err := json.Unmarshal([]byte(got), &m); err != nil {
+				t.Errorf("sanitized output did not parse: %v", err)
+			}
+		})
+	}
+}
+
 func TestStrategyFactorAnalysisTool(t *testing.T) {
 	ts := NewTools("", nil)
 	mkSeries := func(n int, start, step float64) map[string]interface{} {

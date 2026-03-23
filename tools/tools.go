@@ -178,6 +178,39 @@ func ParseToolCallFromContent(content string) (name string, args string, ok bool
 	return "", "", false
 }
 
+// SanitizeToolCallArguments attempts to fix common LLM JSON malformations before parsing.
+// Handles: markdown fences (```json, ```), trailing commas, extra whitespace.
+// Returns the original string if it parses as valid JSON.
+func SanitizeToolCallArguments(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	// Strip markdown code fences: ```json ... ``` or ``` ... ```
+	if strings.HasPrefix(s, "```") {
+		idx := strings.Index(s[3:], "```")
+		if idx >= 0 {
+			inner := s[3 : 3+idx]
+			if strings.HasPrefix(strings.TrimSpace(inner), "json") {
+				inner = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(inner), "json"))
+			}
+			s = strings.TrimSpace(inner)
+		} else {
+			s = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(s, "```"), "json"))
+		}
+	}
+	// Fix trailing commas (invalid in JSON)
+	for {
+		prev := s
+		s = regexp.MustCompile(`,\s*}`).ReplaceAllString(s, "}")
+		s = regexp.MustCompile(`,\s*]`).ReplaceAllString(s, "]")
+		if s == prev {
+			break
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
 // extractJSON extracts a complete JSON object starting at start, handling nested braces and strings.
 func extractJSON(s string, start int) (string, int) {
 	if start >= len(s) || s[start] != '{' {
@@ -681,6 +714,7 @@ func DefinitionsForSubagent() []openai.Tool {
 // For save_memory and read_memory, platform and userID must be injected by the caller via InjectMemoryArgs.
 // Structured failure logging (with session context and retries) is handled in the agent layer (runMainAgentTool, subagents, spawn_subagents).
 func (t *Tools) ExecuteTool(name, argsJSON string) (string, error) {
+	argsJSON = SanitizeToolCallArguments(argsJSON)
 	var args map[string]interface{}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)

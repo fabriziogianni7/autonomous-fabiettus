@@ -275,6 +275,9 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 
 		if len(msgResp.ToolCalls) > 0 {
 			toolInvocations += len(msgResp.ToolCalls)
+			for i := range msgResp.ToolCalls {
+				msgResp.ToolCalls[i].Function.Arguments = tools.SanitizeToolCallArguments(msgResp.ToolCalls[i].Function.Arguments)
+			}
 			messages = append(messages, msgResp)
 			messages = append(messages, a.structuredToolRoundMessages(ctx, msg, msgResp.ToolCalls, &failureAnalyzerUsed, &walletToolUsed)...)
 			continue
