@@ -40,6 +40,7 @@ import (
 )
 
 func main() {
+	log.Println("[startup] autonomous-fabiettus starting...")
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)
@@ -315,6 +316,20 @@ func main() {
 	// Log x402 router spend stats periodically (autonomous mode only)
 	if cfg.AutonomousMode && x402Client != nil {
 		go logX402Stats(ctx, x402Client, cfg.X402RouterURL)
+	}
+
+	// Bind to PORT when set (e.g. Railway) so the platform sees the process as healthy; enables log streaming.
+	if port := os.Getenv("PORT"); port != "" {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		srv := &http.Server{Addr: ":" + port, Handler: mux}
+		go func() {
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("[http] port %s: %v", port, err)
+			}
+		}()
+		log.Printf("[startup] health server listening on :%s", port)
 	}
 
 	sig := make(chan os.Signal, 1)
