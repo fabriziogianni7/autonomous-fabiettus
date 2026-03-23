@@ -431,7 +431,7 @@ func Definitions() []openai.Tool {
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "strategy_factor_analysis",
-				Description: "Deterministic multifactor + EV/Kelly from historical price JSON. Pass Tokenaru (or CoinGecko-shaped) responses per asset. REQUIRED: series_json object mapping keys (e.g. bitcoin, ethereum, SOL, WBTC) to each asset's JSON body from http_request. Always include bitcoin AND ethereum series for benchmark-relative factors. Optional: portfolio_symbols, target_symbol, portfolio_value_usd, deployable_usdc_above_reserve_usd, source_asset, source_asset_value_usd, trade_type (buy_with_usdc|swap_asset|rebalance_asset|reserve_recovery|bootstrap|other), risk_tier (bluechip|speculative). Uses bounded concurrency per asset. Returns factors, signal_score, p_win, payoff/loss estimates, EV, Kelly, recommended_size_usd, go per asset.",
+				Description: "Deterministic multifactor + EV/Kelly from historical price JSON. BEFORE calling: Fetch OHLC from Tokenaru via http_request for each symbol (bitcoin, ethereum, target). Example: GET https://tokenaru.vercel.app/api/lookup?q=bitcoin%20OHLC%2030, q=ethereum%20OHLC%2030, q=SOL%20OHLC%2030. Use each response body as the value for that key in series_json. Never call with empty series_json—it will fail. REQUIRED: series_json object mapping keys to Tokenaru JSON bodies. Always include bitcoin AND ethereum for benchmarks. Optional: portfolio_symbols, target_symbol, portfolio_value_usd, deployable_usdc_above_reserve_usd, source_asset, source_asset_value_usd, trade_type (buy_with_usdc|swap_asset|rebalance_asset|reserve_recovery|bootstrap|other), risk_tier (bluechip|speculative). Returns factors, signal_score, p_win, payoff/loss, EV, Kelly, recommended_size_usd, go per asset.",
 				Parameters: jsonschema.Definition{
 					Type: jsonschema.Object,
 					Properties: map[string]jsonschema.Definition{
@@ -1841,7 +1841,11 @@ func (t *Tools) strategyFactorAnalysis(strArgs map[string]string, rawArgs map[st
 	}
 	series, err := parseSeriesJSONField(rawArgs["series_json"])
 	if err != nil {
-		return "Error: " + err.Error(), nil
+		msg := "Error: " + err.Error()
+		if strings.Contains(err.Error(), "series_json") || strings.Contains(err.Error(), "series") {
+			msg += " Remediation: Fetch OHLC from Tokenaru first via http_request (e.g. GET https://tokenaru.vercel.app/api/lookup?q=bitcoin%20OHLC%2030, ethereum OHLC 30, [target] OHLC 30). Pass each response body as the value for the corresponding key in series_json. Bitcoin and ethereum are mandatory for benchmarks."
+		}
+		return msg, nil
 	}
 	req := strategy.AnalyzeRequest{
 		SeriesJSON:                    series,
@@ -1870,7 +1874,11 @@ func (t *Tools) strategyFactorAnalysis(strArgs map[string]string, rawArgs map[st
 	defer cancel()
 	resp, err := strategy.Analyze(ctx, req)
 	if err != nil {
-		return "Error: " + err.Error(), nil
+		msg := "Error: " + err.Error()
+		if strings.Contains(err.Error(), "series") || strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "no valid") {
+			msg += " Remediation: Fetch OHLC from Tokenaru first via http_request (e.g. GET https://tokenaru.vercel.app/api/lookup?q=bitcoin%20OHLC%2030, ethereum OHLC 30, [target] OHLC 30). Pass each response body as the value for the corresponding key in series_json. Bitcoin and ethereum are mandatory for benchmarks."
+		}
+		return msg, nil
 	}
 
 	// Log result

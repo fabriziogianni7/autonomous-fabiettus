@@ -63,7 +63,7 @@ func main() {
 		toolInstruction += " Subagents are disabled: when you would use spawn_subagents, perform the analysis yourself in the same turn instead."
 	}
 	if cfg.AutonomousMode {
-		toolInstruction += " Prioritize wallet and trading tools when seeking profitable opportunities. Use http_request with Tokenaru for onchain data before executing trades. For discretionary trades, call strategy_factor_analysis after fetching OHLC/history (include bitcoin + ethereum benchmarks in series_json). Use x402_get_stats to check inference spend and runway before capital deployment. Market scan reports require fresh data: you MUST call wallet_get_portfolio_value and http_request (Tokenaru) for prices in the same turn. Never use memory or conversation history as a substitute for live market data."
+		toolInstruction += " Prioritize wallet and trading tools when seeking profitable opportunities. Use http_request with Tokenaru for onchain data before executing trades. For strategy_factor_analysis: ALWAYS fetch OHLC first via http_request (e.g. q=bitcoin OHLC 30, q=ethereum OHLC 30, q=SOL OHLC 30). Pass response bodies as series_json—never call with empty series_json. For discretionary trades, include bitcoin and ethereum benchmarks. Use x402_get_stats to check inference spend and runway before capital deployment. Market scan reports require fresh data: you MUST call wallet_get_portfolio_value and http_request (Tokenaru) for prices in the same turn. Never use memory or conversation history as a substitute for live market data."
 		minBase := cfg.X402MinBaseUSDC
 		if minBase == "" {
 			minBase = "10"

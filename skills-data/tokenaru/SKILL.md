@@ -170,7 +170,11 @@ Successful responses may include a `summary` field (1–2 sentence LLM summary) 
 
 ## Agent behavior: multifactor tool
 
-After fetching historical/OHLC responses, pass the JSON bodies into **`strategy_factor_analysis`** as `series_json` (map key → JSON). Include **bitcoin** and **ethereum** keys for benchmark-relative factors. See STRATEGY.md.
+**Never call `strategy_factor_analysis` without first fetching OHLC.** The tool requires a non-empty `series_json` and will fail otherwise.
+
+1. For each symbol (bitcoin, ethereum, target e.g. SOL), call `http_request` to Tokenaru: `GET https://tokenaru.vercel.app/api/lookup?q=<symbol>%20OHLC%2030` (or 7, 14, 90 days).
+2. Pass each response body as the value for that key in `series_json` when calling `strategy_factor_analysis`.
+3. Include **bitcoin** and **ethereum** for benchmark-relative factors. See STRATEGY.md.
 
 ## Agent behavior: when to fetch historical and OHLC
 
