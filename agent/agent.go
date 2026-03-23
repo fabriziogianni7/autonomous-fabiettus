@@ -252,20 +252,7 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 	failureAnalyzerUsed := false
 
 	for i := 0; i < maxToolRounds; i++ {
-		sendMessages := messages
-		if a.skipCompaction {
-			// x402 router with model "auto" may route to Anthropic Messages API, which expects
-			// top-level "system" parameter, not system role in messages. Prepend system to first user message.
-			sendMessages = convertToMessagesAPIFormat(messages)
-		}
-		req := openai.ChatCompletionRequest{
-			Model:    a.parentModel,
-			Messages: sendMessages,
-			Tools:    toolDefs,
-		}
-		if a.skipCompaction {
-			req.MaxTokens = 4096 // x402 router requires max_tokens
-		}
+		req := a.buildMainAgentChatCompletionRequest(messages, toolDefs)
 		resp, err := createChatCompletionWithRetry(ctx, a.client, req)
 		if err != nil {
 			log.Printf("[agent] LLM error: %v", err)
@@ -283,112 +270,18 @@ func (a *Agent) HandleMessage(ctx context.Context, msg gateway.IncomingMessage) 
 
 		msgResp := resp.Choices[0].Message
 
-		// Execute tool calls (structured)
 		if len(msgResp.ToolCalls) > 0 {
 			messages = append(messages, msgResp)
-			var postToolHints []string
-			for _, tc := range msgResp.ToolCalls {
-				if tc.Function.Name == "wallet_execute_transfer" || tc.Function.Name == "wallet_execute_contract_call" {
-					walletToolUsed = true
-				}
-				args := tc.Function.Arguments
-				var result string
-				if tc.Function.Name == "spawn_subagents" {
-					result = a.handleSpawnSubagents(ctx, args, msg)
-				} else {
-					if tc.Function.Name == "save_memory" || tc.Function.Name == "read_memory" {
-						if injected, err := tools.InjectMemoryArgs(args, msg.Platform, msg.UserID); err == nil {
-							args = injected
-						}
-					}
-					if tc.Function.Name == "create_scheduled_reminder" || tc.Function.Name == "list_reminders" || tc.Function.Name == "delete_reminder" {
-						if injected, err := tools.InjectReminderArgs(args, msg.Platform, msg.UserID, msg.ChatID); err == nil {
-							args = injected
-						}
-					}
-					if tc.Function.Name == "wallet_execute_transfer" || tc.Function.Name == "wallet_execute_contract_call" {
-						if injected, err := tools.InjectWalletArgs(args, msg.Platform, msg.UserID, msg.ChatID); err == nil {
-							args = injected
-						}
-					}
-					var execErr error
-					var corrID string
-					result, execErr, corrID, _ = a.runMainAgentTool(msg, tc.Function.Name, args)
-					failed := execErr != nil || isErrorResult(result)
-					if failed && a.failureAnalyzerEnabled && !failureAnalyzerUsed && !a.disableSubagents && shouldRunFailureAnalyzer(tc.Function.Name, execErr, result) {
-						if hint := a.runFailureAnalyzer(ctx, msg, tc.Function.Name, args, execErr, result, corrID); hint != "" {
-							postToolHints = append(postToolHints, hint)
-						}
-						failureAnalyzerUsed = true
-					}
-				}
-				messages = append(messages, openai.ChatCompletionMessage{
-					Role:       openai.ChatMessageRoleTool,
-					Content:    result,
-					ToolCallID: tc.ID,
-				})
-			}
-			for _, h := range postToolHints {
-				messages = append(messages, openai.ChatCompletionMessage{
-					Role:    openai.ChatMessageRoleSystem,
-					Content: h,
-				})
-			}
+			messages = append(messages, a.structuredToolRoundMessages(ctx, msg, msgResp.ToolCalls, &failureAnalyzerUsed, &walletToolUsed)...)
 			continue
 		}
 
-		// Fallback: model returned tool format as text
 		if toolName, toolArgs, ok := tools.ParseToolCallFromContent(msgResp.Content); ok {
 			messages = append(messages, openai.ChatCompletionMessage{
 				Role:    openai.ChatMessageRoleAssistant,
 				Content: msgResp.Content,
 			})
-			if toolName == "wallet_execute_transfer" || toolName == "wallet_execute_contract_call" {
-				walletToolUsed = true
-			}
-			var result string
-			var postFallbackHints []string
-			if toolName == "spawn_subagents" {
-				result = a.handleSpawnSubagents(ctx, toolArgs, msg)
-			} else {
-				if toolName == "save_memory" || toolName == "read_memory" {
-					if injected, err := tools.InjectMemoryArgs(toolArgs, msg.Platform, msg.UserID); err == nil {
-						toolArgs = injected
-					}
-				}
-				if toolName == "create_scheduled_reminder" || toolName == "list_reminders" || toolName == "delete_reminder" {
-					if injected, err := tools.InjectReminderArgs(toolArgs, msg.Platform, msg.UserID, msg.ChatID); err == nil {
-						toolArgs = injected
-					}
-				}
-				if toolName == "wallet_execute_transfer" || toolName == "wallet_execute_contract_call" {
-					if injected, err := tools.InjectWalletArgs(toolArgs, msg.Platform, msg.UserID, msg.ChatID); err == nil {
-						toolArgs = injected
-					}
-				}
-				var execErr error
-				var corrID string
-				result, execErr, corrID, _ = a.runMainAgentTool(msg, toolName, toolArgs)
-				failed := execErr != nil || isErrorResult(result)
-				if failed && a.failureAnalyzerEnabled && !failureAnalyzerUsed && !a.disableSubagents && shouldRunFailureAnalyzer(toolName, execErr, result) {
-					if hint := a.runFailureAnalyzer(ctx, msg, toolName, toolArgs, execErr, result, corrID); hint != "" {
-						postFallbackHints = append(postFallbackHints, hint)
-					}
-					failureAnalyzerUsed = true
-				}
-			}
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:       openai.ChatMessageRoleTool,
-				Content:    result,
-				ToolCallID: "fallback",
-				Name:       toolName,
-			})
-			for _, h := range postFallbackHints {
-				messages = append(messages, openai.ChatCompletionMessage{
-					Role:    openai.ChatMessageRoleSystem,
-					Content: h,
-				})
-			}
+			messages = append(messages, a.fallbackToolRoundMessages(ctx, msg, toolName, toolArgs, &failureAnalyzerUsed, &walletToolUsed)...)
 			continue
 		}
 
