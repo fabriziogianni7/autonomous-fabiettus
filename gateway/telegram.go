@@ -55,11 +55,119 @@ func splitForTelegram(text string) []string {
 	return out
 }
 
+// formatMarkdownTablesForTelegram converts markdown tables to <pre> blocks with padded
+// columns so they render as aligned tables in Telegram (monospace).
+func formatMarkdownTablesForTelegram(s string) string {
+	lines := strings.Split(s, "\n")
+	var result []string
+	i := 0
+	for i < len(lines) {
+		line := lines[i]
+		if !strings.Contains(line, "|") {
+			result = append(result, line)
+			i++
+			continue
+		}
+		// Collect consecutive table rows
+		var tableLines []string
+		for i < len(lines) && strings.Contains(lines[i], "|") {
+			tableLines = append(tableLines, lines[i])
+			i++
+		}
+		if len(tableLines) == 0 {
+			continue
+		}
+		// Parse rows and skip separator line (|---|---|)
+		var rows [][]string
+		for _, l := range tableLines {
+			cells := strings.Split(l, "|")
+			for j, c := range cells {
+				cells[j] = strings.TrimSpace(c)
+			}
+			// Remove empty first/last from leading/trailing |
+			if len(cells) > 0 && cells[0] == "" {
+				cells = cells[1:]
+			}
+			if len(cells) > 0 && cells[len(cells)-1] == "" {
+				cells = cells[:len(cells)-1]
+			}
+			// Skip separator row (---|---|...)
+			if len(cells) > 0 {
+				allDash := true
+				for _, c := range cells {
+					if !regexp.MustCompile(`^[\s\-:]+$`).MatchString(c) {
+						allDash = false
+						break
+					}
+				}
+				if !allDash {
+					rows = append(rows, cells)
+				}
+			}
+		}
+		if len(rows) == 0 {
+			for _, l := range tableLines {
+				result = append(result, l)
+			}
+			continue
+		}
+		// Compute column widths
+		maxCols := 0
+		for _, r := range rows {
+			if len(r) > maxCols {
+				maxCols = len(r)
+			}
+		}
+		widths := make([]int, maxCols)
+		for _, r := range rows {
+			for j, c := range r {
+				if j >= maxCols {
+					break
+				}
+				w := len([]rune(c))
+				if w > widths[j] {
+					widths[j] = w
+				}
+			}
+		}
+		// Build padded table
+		var preLines []string
+		for _, r := range rows {
+			var parts []string
+			for j := 0; j < maxCols; j++ {
+				cell := ""
+				if j < len(r) {
+					cell = r[j]
+				}
+				pad := widths[j] - len([]rune(cell))
+				parts = append(parts, cell+strings.Repeat(" ", pad))
+			}
+			preLines = append(preLines, strings.Join(parts, "  "))
+		}
+		tableBody := html.EscapeString(strings.Join(preLines, "\n"))
+		result = append(result, "<pre>"+tableBody+"</pre>")
+	}
+	return strings.Join(result, "\n")
+}
+
 // convertMarkdownBoldToHTML converts **bold** to <b>bold</b> for Telegram HTML parse mode.
-// Escapes HTML entities in content so Telegram renders correctly.
+// Formats markdown tables as <pre> blocks for aligned display. Escapes HTML outside pre blocks.
 func convertMarkdownBoldToHTML(s string) string {
-	escaped := html.EscapeString(s)
-	return regexp.MustCompile(`\*\*(.+?)\*\*`).ReplaceAllString(escaped, "<b>$1</b>")
+	s = formatMarkdownTablesForTelegram(s)
+	// Split on <pre>...</pre> blocks to avoid escaping them
+	preRegex := regexp.MustCompile(`(?s)(<pre>.*?</pre>)`)
+	parts := preRegex.Split(s, -1)
+	preMatches := preRegex.FindAllString(s, -1)
+	var out strings.Builder
+	for i, part := range parts {
+		escaped := html.EscapeString(part)
+		escaped = regexp.MustCompile(`\*\*(.+?)\*\*`).ReplaceAllString(escaped, "<b>$1</b>")
+		out.WriteString(escaped)
+		if i < len(preMatches) {
+			out.WriteString(preMatches[i])
+		}
+	}
+	return out.String()
 }
 
 // Send delivers an outbound message to the chat. Implements Sender.
