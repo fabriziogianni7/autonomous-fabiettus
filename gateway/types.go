@@ -4,11 +4,12 @@ import "context"
 
 // IncomingMessage is the normalized format for messages from any platform.
 type IncomingMessage struct {
-	Platform  string // "telegram"
-	UserID    string // platform-specific user identifier
-	ChatID    string // where to send the reply (channel, chat, etc.)
-	Text      string
-	ReplyToID string // optional, for threading
+	Platform     string // "telegram"
+	UserID       string // platform-specific user identifier
+	ChatID       string // where to send the reply (channel, chat, etc.)
+	Text         string
+	ReplyToID    string // optional, for threading
+	IsRestricted bool   // true when the message originates from a restricted context (e.g. a group chat); agent should block dangerous tools
 }
 
 // Handler processes an incoming message and returns the reply.
